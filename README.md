@@ -27,3 +27,30 @@
                                 ▼
                         [ 5. Egress Responder ] ──▶ Reply Email / Telegram
 ```
+
+## 📁 Repository Structure & Directory Guide
+
+This platform follows a modular architecture separating orchestration logic, external integrations, API endpoints, and frontend components.
+
+```text
+.
+├── __pycache__/                    # Python bytecode cache (ignored by Git)
+├── config/                         # App settings, whitelists, and prompt templates
+├── dashboard\src/                  # React Approval Dashboard frontend
+│   ├── components/                 # UI elements (approval cards, PDF/spreadsheet viewers)
+│   ├── pages/                      # Dashboard views & job queue pages
+│   └── services/                   # API client for backend communications
+├── src/                            # Core application source code
+│   ├── api/                        # FastAPI REST API endpoints & webhooks
+│   ├── document_generators/        # PDF, Excel, Word & text builder modules
+│   ├── integrations/               # Gmail, Telegram, and whitelisted data connectors
+│   ├── llm/                        # Ollama connection client & prompt handlers
+│   ├── storage/                    # State persistence DB & generated document store
+│   └── workflow/                   # LangGraph state machine & approval interrupt nodes
+├── tests/                          # Unit and integration test suite
+├── venv/                           # Local Python virtual environment (ignored by Git)
+├── .gitignore                      # Git ignore rules
+├── docker-compose.yml              # Container orchestration setup
+├── LICENSE                         # Project license
+├── README.md                       # Developer setup & documentation guide
+└── server.py                       # Main FastAPI backend entrypoint
