@@ -1,0 +1,16 @@
+# Virtual Environment
+venv/
+.venv/
+ENV/
+
+# Python Cache & Databases
+__pycache__/
+*.py[cod]
+*.db
+*.sqlite3
+
+# Environment Variables & Secret Keys
+.env
+
+# Generated Artifacts
+src/storage/files/
