@@ -121,38 +121,6 @@ pip install -r requirements.txt
 
 ```
 
-### 2. Configure Environment Variables
-
-Create a `.env` file in the root directory:
-
-```env
-OLLAMA_HOST=[http://127.0.0.1:11434](http://127.0.0.1:11434)
-OLLAMA_MODEL=qwen3.5:9b
-FASTAPI_PORT=8000
-
-```
-
-### 3. Launch Backend API
-
-```powershell
-# Start FastAPI backend
-python server.py
-
-```
-
-*API docs available at `http://127.0.0.1:8000/docs*`
-
-### 4. Setup & Launch React Dashboard
-
-In a new terminal window:
-
-```powershell
-cd dashboard\src
-npm install
-npm run dev
-
-```
-
 ---
 
 ## 💻 Development Guide
