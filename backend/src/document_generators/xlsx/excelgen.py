@@ -2,20 +2,19 @@ import os
 import sys
 from pathlib import Path
 
-# Add current folder to sys.path so it can locate pdf_builder and schemas
+# Add current directory to path
 CURRENT_DIR = Path(__file__).parent.resolve()
 if str(CURRENT_DIR) not in sys.path:
     sys.path.append(str(CURRENT_DIR))
 
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
-from tests.pdfgen.pdf_builder import generate_pdf_safely
-from tests.pdfgen.schemas import PDFDocumentSchema
+from src.document_generators.xlsx.excel_builder import generate_excel_safely
+from src.document_generators.xlsx.excel_schemas import ExcelDocumentSchema
 
 # =====================================================================
 # 1. Initialize Ollama LLM Connection
 # =====================================================================
-# Default fallback set to 127.0.0.1 (IPv4 loopback)
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://100.99.95.105:11434")
 MODEL_NAME = os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
 
@@ -27,20 +26,19 @@ llm = ChatOllama(
     temperature=0.1
 )
 
-# Enforce Pydantic schema output
-structured_llm = llm.with_structured_output(PDFDocumentSchema)
+structured_llm = llm.with_structured_output(ExcelDocumentSchema)
 
 # =====================================================================
-# 2. Define System Prompt for Document Design
+# 2. Define System Prompt for Spreadsheet Generation
 # =====================================================================
 system_prompt = (
-    "You are an expert Executive Document Designer. "
-    "Your job is to convert user requests into clear, well-structured PDF document data. "
+    "You are an expert Data Analyst & Spreadsheet Specialist. "
+    "Your job is to convert user requests into clean, organized Excel spreadsheet datasets. "
     "REQUIREMENTS:\n"
-    "1. Always choose a clean filename ending in '.pdf'.\n"
-    "2. Provide a strong document title and helpful subtitle.\n"
-    "3. Structure text into logical sections with descriptive headings and body paragraphs.\n"
-    "4. If the prompt contains numbers, metrics, or comparison data, include a formatted table with column headers."
+    "1. Pick a clear filename ending in '.xlsx'.\n"
+    "2. Provide a descriptive main document title.\n"
+    "3. Structure tables with clear column headers and accurate row values.\n"
+    "4. Use separate sheets if the request covers distinct categories or time periods."
 )
 
 prompt_template = ChatPromptTemplate.from_messages([
@@ -55,8 +53,8 @@ chain = prompt_template | structured_llm
 # 3. Interactive CLI Loop
 # =====================================================================
 def main():
-    print("\n📄 AI PDF Generator Tool Ready!")
-    print("Type what you want in the PDF (e.g. 'Create a Q3 sales report comparing Product A and Product B').")
+    print("\n📊 AI Excel (.xlsx) Generator Tool Ready!")
+    print("Type what data you want (e.g., 'Generate an inventory tracking sheet with 5 products, stock levels, and prices').")
     print("Type 'exit' or 'quit' to stop.\n")
 
     while True:
@@ -68,19 +66,17 @@ def main():
                 print("Goodbye!")
                 break
 
-            print("\n🧠 AI generating document layout & content...")
-            
-            # 1. Ask AI to draft structured schema from prompt
-            pdf_data: PDFDocumentSchema = chain.invoke({"user_request": user_input})
-            
-            print(f"  ├─ Document Title: {pdf_data.document_title}")
-            print(f"  ├─ Target Filename: {pdf_data.filename}")
-            print("🎨 Compiling PDF with ReportLab...")
+            print("\n🧠 AI generating structured spreadsheet layout...")
+            excel_data: ExcelDocumentSchema = chain.invoke({"user_request": user_input})
 
-            # 2. Build the physical PDF file safely
-            saved_pdf_path = generate_pdf_safely(pdf_data)
+            print(f"  ├─ Title: {excel_data.title}")
+            print(f"  ├─ Target Filename: {excel_data.filename}")
+            print(f"  ├─ Sheets Generated: {[s.sheet_name for s in excel_data.sheets]}")
+            
+            print("🎨 Compiling .xlsx with openpyxl...")
+            saved_path = generate_excel_safely(excel_data)
 
-            print(f"✅ Success! PDF saved at: {saved_pdf_path}\n")
+            print(f"✅ Success! Excel file saved at: {saved_path}\n")
 
         except Exception as e:
             print(f"❌ Error: {e}\n")

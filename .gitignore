@@ -1,16 +1,23 @@
-# Virtual Environment
-venv/
-.venv/
-ENV/
+#Virtual Environment
+backend/.venv/
+backend/venv/
+backend/ENV/
 
-# Python Cache & Databases
-__pycache__/
-*.py[cod]
-*.db
-*.sqlite3
+#Python Cache & Databases
+backend/**/__pycache__/
+backend/**/*.py[cod]
+backend/*.db
+backend/*.sqlite3
 
-# Environment Variables & Secret Keys
+#Environment Variables & Secret Keys
 .env
 
-# Generated Artifacts
-src/storage/files/
+#Generated Artifacts
+backend/src/storage/files/
+
+#Frontend (nanti bila frontend wujud)
+frontend/node_modules/
+frontend/.env
+
+#Generic
+__pycache__/
