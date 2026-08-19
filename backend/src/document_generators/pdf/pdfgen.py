@@ -2,19 +2,19 @@ import os
 import sys
 from pathlib import Path
 
-# Add current directory to path
+# Add current folder to sys.path so it can locate pdf_builder and schemas
 CURRENT_DIR = Path(__file__).parent.resolve()
 if str(CURRENT_DIR) not in sys.path:
     sys.path.append(str(CURRENT_DIR))
 
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
-from word_builder import generate_word_safely
-from word_schemas import WordDocumentSchema
-
+from src.document_generators.pdf.pdf_builder import generate_pdf_safely
+from src.document_generators.pdf.schemas import PDFDocumentSchema
 # =====================================================================
 # 1. Initialize Ollama LLM Connection
 # =====================================================================
+# Default fallback set to 127.0.0.1 (IPv4 loopback)
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://100.99.95.105:11434")
 MODEL_NAME = os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
 
@@ -26,18 +26,20 @@ llm = ChatOllama(
     temperature=0.1
 )
 
-structured_llm = llm.with_structured_output(WordDocumentSchema)
+# Enforce Pydantic schema output
+structured_llm = llm.with_structured_output(PDFDocumentSchema)
 
 # =====================================================================
-# 2. Define System Prompt for Word Generation
+# 2. Define System Prompt for Document Design
 # =====================================================================
 system_prompt = (
-    "You are an expert Technical Writer and Document Architect. "
-    "Your job is to convert user requests into clean, well-structured Word document data (.docx). "
+    "You are an expert Executive Document Designer. "
+    "Your job is to convert user requests into clear, well-structured PDF document data. "
     "REQUIREMENTS:\n"
-    "1. Pick a clear filename ending in '.docx'.\n"
-    "2. Provide a professional document title and subtitle.\n"
-    "3. Divide content into logical sections with clear headings, detailed paragraphs, and helpful bullet points where appropriate."
+    "1. Always choose a clean filename ending in '.pdf'.\n"
+    "2. Provide a strong document title and helpful subtitle.\n"
+    "3. Structure text into logical sections with descriptive headings and body paragraphs.\n"
+    "4. If the prompt contains numbers, metrics, or comparison data, include a formatted table with column headers."
 )
 
 prompt_template = ChatPromptTemplate.from_messages([
@@ -52,8 +54,8 @@ chain = prompt_template | structured_llm
 # 3. Interactive CLI Loop
 # =====================================================================
 def main():
-    print("\n📝 AI Word (.docx) Generator Tool Ready!")
-    print("Type what you want written (e.g., 'Write a project charter for an automated security orchestration pipeline').")
+    print("\n📄 AI PDF Generator Tool Ready!")
+    print("Type what you want in the PDF (e.g. 'Create a Q3 sales report comparing Product A and Product B').")
     print("Type 'exit' or 'quit' to stop.\n")
 
     while True:
@@ -65,17 +67,19 @@ def main():
                 print("Goodbye!")
                 break
 
-            print("\n🧠 AI drafting document layout & content...")
-            word_data: WordDocumentSchema = chain.invoke({"user_request": user_input})
-
-            print(f"  ├─ Title: {word_data.document_title}")
-            print(f"  ├─ Target Filename: {word_data.filename}")
-            print(f"  ├─ Sections Created: {len(word_data.sections)}")
+            print("\n🧠 AI generating document layout & content...")
             
-            print("🎨 Compiling .docx with python-docx...")
-            saved_path = generate_word_safely(word_data)
+            # 1. Ask AI to draft structured schema from prompt
+            pdf_data: PDFDocumentSchema = chain.invoke({"user_request": user_input})
+            
+            print(f"  ├─ Document Title: {pdf_data.document_title}")
+            print(f"  ├─ Target Filename: {pdf_data.filename}")
+            print("🎨 Compiling PDF with ReportLab...")
 
-            print(f"✅ Success! Word document saved at: {saved_path}\n")
+            # 2. Build the physical PDF file safely
+            saved_pdf_path = generate_pdf_safely(pdf_data)
+
+            print(f"✅ Success! PDF saved at: {saved_pdf_path}\n")
 
         except Exception as e:
             print(f"❌ Error: {e}\n")
