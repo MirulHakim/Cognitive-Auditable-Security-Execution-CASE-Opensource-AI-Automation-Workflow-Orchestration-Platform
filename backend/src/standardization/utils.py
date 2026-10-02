@@ -216,7 +216,11 @@ def parse_date(value: Any, default_tz: ZoneInfo = DEFAULT_TZ) -> datetime:
         return _attach_tz(value, default_tz)
     if isinstance(value, (int, float)) or (isinstance(value, str) and re.fullmatch(r"\d{9,13}(\.\d+)?", value.strip())):
         ts = float(value)
-        if ts > 1e12:  # milliseconds
+        # A seconds timestamp doesn't reach 1e10 until the year 2286, so anything
+        # above that is milliseconds - this also covers ms timestamps from before
+        # ~2001 (e.g. 946684800000 for 2000-01-01), which a 1e12 threshold would
+        # misread as seconds and overflow datetime.fromtimestamp on.
+        if ts > 1e10:
             ts /= 1000
         return datetime.fromtimestamp(ts, tz=timezone.utc)
     if not isinstance(value, str):

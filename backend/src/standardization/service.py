@@ -38,6 +38,23 @@ _ACTOR = "CASE System"
 _ROLE = "SYSTEM"
 
 
+def _message_content_hash(msg: StandardMessage) -> str:
+    """Hash of a StandardMessage's content, for audit provenance.
+
+    Excludes message_id (a fresh random UUID per call) and standardized_at
+    (wall-clock). Without this, standardizing the same raw payload twice
+    would never produce the same output_hash, which would make output_hash
+    useless for proving the AI saw identical data (§8's lineage-linking use).
+    """
+    return sha256_hex(msg.model_dump(mode="json", exclude={"message_id", "standardized_at"}))
+
+
+def _record_set_content_hash(rs: StandardRecordSet) -> str:
+    """Same reasoning as _message_content_hash, for StandardRecordSet's
+    record_set_id and fetched_at."""
+    return sha256_hex(rs.model_dump(mode="json", exclude={"record_set_id", "fetched_at"}))
+
+
 def _audit_failure(audit: AuditLogger, *, workspace_id: str, execution_id: Optional[str],
                    target: str, stage: Literal["message", "resource"], exc: StandardizationError) -> None:
     audit.log_event(
@@ -100,7 +117,7 @@ def standardize_message(
             "adapter": _ADAPTER_NAME[channel],
             "schema": f"StandardMessage {SCHEMA_VERSION}",
             "input_hash": msg.raw_hash,
-            "output_hash": sha256_hex(msg.canonical_json()),
+            "output_hash": _message_content_hash(msg),
             "body_truncated": msg.body_truncated,
             "attachment_count": len(msg.attachments),
         },
@@ -197,7 +214,7 @@ def standardize_resource(
             "truncated": record_set.truncated,
             "warning_count": len(record_set.warnings),
             "input_hash": record_set.raw_hash,
-            "output_hash": sha256_hex(record_set.canonical_json()),
+            "output_hash": _record_set_content_hash(record_set),
         },
         execution_id=execution_id,
     )
