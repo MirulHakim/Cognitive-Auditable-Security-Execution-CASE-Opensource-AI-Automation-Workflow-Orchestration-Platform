@@ -1,0 +1,35 @@
+"""
+Task 3.1 stand-in: placeholder raw data structures per resource type.
+
+Real Task 3.1 (analyze data structures from *connected* resources) can't happen
+until Sprint 2.3's real DB/API connections exist. These fixtures are best-guess
+shapes (id/created_at, message_id/from/to, etc.) used to unblock Sprint 3 testing.
+
+Once real resources are connected, compare these against real responses and
+update this file if the shapes differ. Field-level standardization of this data
+is handled by src.standardization.service.standardize_resource.
+"""
+
+from src.standardization.schemas import ResourceType
+
+MOCK_RAW_DATA = {
+    ResourceType.REST_API: {
+        "id": "usr_123",
+        "created_at": "2026-08-20T10:30:00Z",
+        "updated_at": "2026-08-21T11:00:00Z",
+        "name": "Test User",
+        "active": True,
+    },
+    ResourceType.EMAIL_SERVICE: {
+        "message_id": "<abc123@mail.example.com>",
+        "date": "2026-08-20T09:15:00Z",
+        "from": "alice@example.com",
+        "to": "bob@example.com",
+        "subject": "Quarterly Report",
+    },
+    ResourceType.JSON_FILE: {
+        "item_id": 7,
+        "label": "Widget",
+        "in_stock": True,
+    },
+}
