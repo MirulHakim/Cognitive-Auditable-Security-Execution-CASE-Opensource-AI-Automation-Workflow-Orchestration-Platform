@@ -45,7 +45,7 @@ class ResourceService:
         Args:
             workspace_id: Workspace the resource belongs to
             resource_name: Name of the resource
-            resource_type: Type (DATABASE, REST_API, EMAIL_SERVICE, JSON_FILE)
+            resource_type: Type (REST_API, EMAIL_SERVICE, JSON_FILE)
             connection_url: Connection URL/endpoint
             encrypted_credentials: Encrypted credentials (base64)
             created_by: User ID who created it

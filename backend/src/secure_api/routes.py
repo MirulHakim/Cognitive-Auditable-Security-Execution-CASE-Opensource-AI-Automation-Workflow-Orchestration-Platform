@@ -203,8 +203,8 @@ async def list_resources(
             data=[
                 {
                     "resource_id": "resource-1",
-                    "resource_name": "Customer Database",
-                    "resource_type": "DATABASE",
+                    "resource_name": "Customer Records API",
+                    "resource_type": "REST_API",
                     "status": "ACTIVE",
                     "created_by": user_context["user_id"],
                     "created_at": datetime.utcnow(),
@@ -281,8 +281,8 @@ async def get_resource(
             success=True,
             data={
                 "resource_id": resource_id,
-                "resource_name": "Customer Database",
-                "resource_type": "DATABASE",
+                "resource_name": "Customer Records API",
+                "resource_type": "REST_API",
                 "status": "ACTIVE",
                 "created_by": user_context["user_id"],
                 "created_at": datetime.utcnow(),
@@ -363,13 +363,13 @@ async def fetch_resource_data(
             success=True,
             data={
                 "resource_id": resource_id,
-                "resource_type": "DATABASE",
+                "resource_type": "REST_API",
                 "data": [
                     {"id": 1, "name": "Customer 1", "email": "customer1@example.com"},
                     {"id": 2, "name": "Customer 2", "email": "customer2@example.com"},
                 ],
                 "fetched_at": datetime.utcnow().isoformat(),
-                "note": "Mock data - Sprint 2.3 will integrate real database queries"
+                "note": "Mock data - Sprint 2.3 will integrate real resource queries"
             },
             metadata={
                 "request_id": request_id,

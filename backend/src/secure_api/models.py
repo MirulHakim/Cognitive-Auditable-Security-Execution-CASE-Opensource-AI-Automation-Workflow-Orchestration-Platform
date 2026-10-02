@@ -31,7 +31,7 @@ class ApiResponse(BaseModel):
 class CreateResourceRequest(BaseModel):
     """Request body for POST /api/v1/resources"""
     resource_name: str = Field(..., max_length=255, min_length=1)
-    resource_type: Literal["DATABASE", "REST_API", "EMAIL_SERVICE", "JSON_FILE"]
+    resource_type: Literal["REST_API", "EMAIL_SERVICE", "JSON_FILE"]
     connection_url: str = Field(..., max_length=1000)
     encrypted_credentials: str  # Base64 encoded
     description: Optional[str] = Field(None, max_length=500)

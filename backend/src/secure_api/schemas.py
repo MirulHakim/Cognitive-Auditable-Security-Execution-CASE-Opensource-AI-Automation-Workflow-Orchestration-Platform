@@ -120,7 +120,6 @@ class RequestContext(BaseModel):
 class ResourceTypeEnum(str, Enum):
     """Supported resource types"""
     REST_API = "REST_API"
-    DATABASE = "DATABASE"
     EMAIL_SERVICE = "EMAIL_SERVICE"
     JSON_FILE = "JSON_FILE"
 
@@ -507,18 +506,6 @@ class DataConversionConfig:
                 target_field="updated_timestamp",
                 target_type=FieldTypeEnum.DATETIME,
                 conversion_rule="parse_iso8601()"
-            ),
-        ],
-        ResourceTypeEnum.DATABASE: [
-            TypeConversionRule(
-                source_field="id",
-                target_field="record_id",
-                target_type=FieldTypeEnum.STRING
-            ),
-            TypeConversionRule(
-                source_field="created_date",
-                target_field="created_timestamp",
-                target_type=FieldTypeEnum.DATETIME
             ),
         ],
         ResourceTypeEnum.EMAIL_SERVICE: [

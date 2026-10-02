@@ -20,12 +20,6 @@ MOCK_RAW_DATA = {
         "name": "Test User",
         "active": True,
     },
-    ResourceTypeEnum.DATABASE: {
-        "id": 42,
-        "created_date": "2026-08-15",
-        "customer_name": "Acme Corp",
-        "balance": 1500.50,
-    },
     ResourceTypeEnum.EMAIL_SERVICE: {
         "message_id": "<abc123@mail.example.com>",
         "date": "2026-08-20T09:15:00Z",
