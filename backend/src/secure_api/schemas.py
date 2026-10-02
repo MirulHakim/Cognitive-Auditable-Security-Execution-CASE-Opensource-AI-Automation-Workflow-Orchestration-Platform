@@ -109,23 +109,7 @@ class RequestContext(BaseModel):
 
 
 # ============================================================================
-# 3. ENTERPRISE RESOURCE SCHEMAS
-#
-# Resource CRUD request/response models (CreateResourceRequest, ResourceResponse,
-# etc.) live in models.py, which routes.py/services.py actually import against.
-# ResourceTypeEnum stays here because the data standardization schemas in
-# section 7 below depend on it.
-# ============================================================================
-
-class ResourceTypeEnum(str, Enum):
-    """Supported resource types"""
-    REST_API = "REST_API"
-    EMAIL_SERVICE = "EMAIL_SERVICE"
-    JSON_FILE = "JSON_FILE"
-
-
-# ============================================================================
-# 4. AUDIT EVENT SCHEMAS
+# 3. AUDIT EVENT SCHEMAS
 # ============================================================================
 
 class AuditEventTypeEnum(str, Enum):
@@ -227,7 +211,7 @@ class AuditTimelineResponse(BaseModel):
 
 
 # ============================================================================
-# 5. HASH CHAIN VERIFICATION SCHEMAS
+# 4. HASH CHAIN VERIFICATION SCHEMAS
 # ============================================================================
 
 class VerifyHashChainRequest(BaseModel):
@@ -269,7 +253,7 @@ class HashVerificationResult(BaseModel):
 
 
 # ============================================================================
-# 6. AUDIT EXPORT SCHEMAS
+# 5. AUDIT EXPORT SCHEMAS
 # ============================================================================
 
 class ExportFormatEnum(str, Enum):
@@ -313,54 +297,7 @@ class ExportAuditLogsResponse(BaseModel):
 
 
 # ============================================================================
-# 7. DATA STANDARDIZATION SCHEMAS
-# ============================================================================
-
-class FieldTypeEnum(str, Enum):
-    """Standardized data field types"""
-    STRING = "STRING"
-    NUMBER = "NUMBER"
-    BOOLEAN = "BOOLEAN"
-    DATETIME = "DATETIME"
-    JSON = "JSON"
-    UNKNOWN = "UNKNOWN"
-
-
-class StandardizedDataField(BaseModel):
-    """Standardized data field mapping"""
-    field_name: str
-    field_value: Any
-    original_field_name: Optional[str] = None
-    field_type: FieldTypeEnum
-    transformed: bool = False
-
-
-class StandardizedDataRecord(BaseModel):
-    """Standardized data record - converted from heterogeneous sources"""
-    record_id: UUID
-    resource_id: UUID
-    resource_type: ResourceTypeEnum
-    fields: List[StandardizedDataField]
-    original_data: Optional[Dict[str, Any]] = None  # preserve original for comparison
-    standardization_timestamp: datetime
-
-
-class TypeConversionRule(BaseModel):
-    """Type conversion rule for field mapping"""
-    source_field: str
-    target_field: str
-    target_type: FieldTypeEnum
-    conversion_rule: Optional[str] = None
-
-
-class TypeConversionRules(BaseModel):
-    """Type conversion rules by resource type"""
-    resource_type: ResourceTypeEnum
-    field_mappings: List[TypeConversionRule]
-
-
-# ============================================================================
-# 8. DECISION & PROVENANCE SCHEMAS
+# 6. DECISION & PROVENANCE SCHEMAS
 # ============================================================================
 
 class AIDecision(BaseModel):
@@ -421,7 +358,7 @@ class WorkflowLineage(BaseModel):
 
 
 # ============================================================================
-# 9. ERROR-SPECIFIC SCHEMAS
+# 7. ERROR-SPECIFIC SCHEMAS
 # ============================================================================
 
 class ErrorCode(str, Enum):
@@ -464,7 +401,7 @@ class AuthErrorResponse(BaseModel):
 
 
 # ============================================================================
-# 10. UTILITY SCHEMAS
+# 8. UTILITY SCHEMAS
 # ============================================================================
 
 class HealthCheckResponse(BaseModel):
@@ -482,65 +419,7 @@ class APIMetadata(BaseModel):
 
 
 # ============================================================================
-# 11. CONFIGURATION SCHEMAS (for reference)
-# ============================================================================
-
-class DataConversionConfig:
-    """Configuration for data type conversions by resource type"""
-
-    CONVERSIONS = {
-        ResourceTypeEnum.REST_API: [
-            TypeConversionRule(
-                source_field="id",
-                target_field="record_id",
-                target_type=FieldTypeEnum.STRING
-            ),
-            TypeConversionRule(
-                source_field="created_at",
-                target_field="created_timestamp",
-                target_type=FieldTypeEnum.DATETIME,
-                conversion_rule="parse_iso8601()"
-            ),
-            TypeConversionRule(
-                source_field="updated_at",
-                target_field="updated_timestamp",
-                target_type=FieldTypeEnum.DATETIME,
-                conversion_rule="parse_iso8601()"
-            ),
-        ],
-        ResourceTypeEnum.EMAIL_SERVICE: [
-            TypeConversionRule(
-                source_field="message_id",
-                target_field="record_id",
-                target_type=FieldTypeEnum.STRING
-            ),
-            TypeConversionRule(
-                source_field="date",
-                target_field="created_timestamp",
-                target_type=FieldTypeEnum.DATETIME
-            ),
-            TypeConversionRule(
-                source_field="from",
-                target_field="sender",
-                target_type=FieldTypeEnum.STRING
-            ),
-            TypeConversionRule(
-                source_field="to",
-                target_field="recipient",
-                target_type=FieldTypeEnum.STRING
-            ),
-        ],
-        ResourceTypeEnum.JSON_FILE: [],  # Minimal transformation
-    }
-
-    @classmethod
-    def get_conversion_rules(cls, resource_type: ResourceTypeEnum) -> List[TypeConversionRule]:
-        """Get conversion rules for a resource type"""
-        return cls.CONVERSIONS.get(resource_type, [])
-
-
-# ============================================================================
-# 12. ROLE-BASED ACCESS CONTROL (RBAC)
+# 9. ROLE-BASED ACCESS CONTROL (RBAC)
 # ============================================================================
 
 ROLE_PERMISSIONS = {

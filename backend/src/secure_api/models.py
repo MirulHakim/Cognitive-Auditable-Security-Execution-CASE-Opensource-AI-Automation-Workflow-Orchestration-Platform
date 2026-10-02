@@ -11,6 +11,8 @@ from typing import Optional, List, Literal
 from datetime import datetime
 from uuid import UUID
 
+from src.standardization.schemas import ResourceType
+
 
 # ============================================================================
 # RESPONSE ENVELOPE (Used by all endpoints)
@@ -31,7 +33,7 @@ class ApiResponse(BaseModel):
 class CreateResourceRequest(BaseModel):
     """Request body for POST /api/v1/resources"""
     resource_name: str = Field(..., max_length=255, min_length=1)
-    resource_type: Literal["REST_API", "EMAIL_SERVICE", "JSON_FILE"]
+    resource_type: ResourceType
     connection_url: str = Field(..., max_length=1000)
     encrypted_credentials: str  # Base64 encoded
     description: Optional[str] = Field(None, max_length=500)
