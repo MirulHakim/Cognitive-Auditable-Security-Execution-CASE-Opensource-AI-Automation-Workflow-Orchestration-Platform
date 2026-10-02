@@ -19,5 +19,9 @@ backend/src/storage/files/
 frontend/node_modules/
 frontend/.env
 
+#Test Coverage
+.coverage
+htmlcov/
+
 #Generic
 __pycache__/
