@@ -64,20 +64,29 @@ The **CASE Platform** provides stateful, human-in-the-loop AI automation with st
 CASE-Platform/
 ├── backend/                        # Main backend application
 │   ├── src/                        # Core backend source code
-│   │   ├── workflow/                 # LangGraph state machine & approval nodes
-│   │   ├── ai_intent/                # AI intent classification (Gemini)
-│   │   ├── secure_api/               # Secure API Layer — enterprise integration & normalization
-│   │   ├── audit/                    # Audit & Transparency Layer — hash chaining, provenance, export
-│   │   ├── security/                 # Authentication & authorization (JWT, RBAC)
-│   │   ├── document_generators/      # PDF, Excel, Word builder modules
+│   │   ├── standardization/          # Data Standardization & Normalization Layer
+│   │   │   ├── schemas.py              # StandardMessage / StandardRecordSet contracts
+│   │   │   ├── utils.py                # Deterministic parsing helpers (dates, money, text, hashing)
+│   │   │   ├── adapters/               # Per-channel/resource adapters (gmail, telegram, web_form, rest_api, json_file)
+│   │   │   ├── audit_port.py           # AuditLogger interface (decoupled from the Audit module)
+│   │   │   ├── service.py              # standardize_message() / standardize_resource() entry points
+│   │   │   └── render.py               # Compact, prompt-injection-safe text views for the AI
+│   │   ├── secure_api/                # Secure API Layer — resource CRUD, RBAC, (future) JWT & DB
+│   │   ├── workflow/                  # LangGraph state machine & approval nodes (planned)
+│   │   ├── ai_intent/                 # AI intent classification (planned)
+│   │   ├── audit/                     # Audit & Transparency Layer — hash chaining, provenance, export (planned)
+│   │   ├── security/                  # Authentication & authorization, JWT/RBAC (planned)
+│   │   ├── document_generators/       # PDF, Excel, Word builder modules
 │   │   │   ├── pdf/
 │   │   │   ├── word/
 │   │   │   └── xlsx/
-│   │   └── storage/                  # Database persistence
-│   ├── tests/                      # Automated unit and integration test suite
+│   │   └── storage/                   # Database persistence (planned)
+│   ├── tests/                      # Automated unit and integration test suite (mirrors src/ by module)
 │   ├── .venv/                      # Local Python virtual environment (git-ignored)
 │   ├── requirements.txt
 │   └── server.py                   # Primary FastAPI backend entrypoint
+├── docs/
+│   └── standardization/            # Module specs and design docs
 ├── frontend/                       # React frontend (in progress)
 ├── .gitignore
 ├── docker-compose.yml
