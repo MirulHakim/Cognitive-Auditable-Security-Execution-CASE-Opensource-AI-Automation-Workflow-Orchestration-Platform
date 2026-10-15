@@ -61,7 +61,6 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
       setSortField(field);
       setSortAsc(true);
     }
-    // Reset to page 1 on sort change
     setCurrentPage(1);
   };
 
@@ -78,7 +77,6 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
     return sortAsc ? comparison : -comparison;
   });
 
-  // Pagination calculations
   const totalPages = Math.ceil(sortedWorkflows.length / ITEMS_PER_PAGE);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const paginatedWorkflows = sortedWorkflows.slice(
@@ -88,7 +86,7 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
 
   return (
     <div className="w-full bg-[#0f172a] border border-slate-800 rounded-xl overflow-hidden shadow-sm">
-      {/* Top Header Controls */}
+      {/* Top Header Controls: Goes to list view via onNavigateToWorkflows */}
       <div className="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
@@ -153,9 +151,16 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
                     className="hover:bg-slate-900/40 transition-colors group"
                   >
                     <td className="py-3 px-4">
+                      {/* Individual Workflow Item: Opens specific workflow via onSelectWorkflow */}
                       <button
                         type="button"
-                        onClick={() => onSelectWorkflow?.(item.id)}
+                        onClick={() => {
+                          if (onSelectWorkflow) {
+                            onSelectWorkflow(item.id);
+                          } else {
+                            console.warn("onSelectWorkflow prop not provided to WorkflowTable");
+                          }
+                        }}
                         className="font-medium text-slate-200 hover:text-cyan-400 hover:underline transition-colors text-left block"
                       >
                         {item.name}
@@ -236,7 +241,7 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
         </table>
       </div>
 
-      {/* Pagination Footer (Only displays when items exceed limit) */}
+      {/* Pagination Footer */}
       {workflows.length > ITEMS_PER_PAGE && (
         <div className="px-4 py-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
           <span>
@@ -289,7 +294,7 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
         </div>
       )}
 
-      {/* Standalone Popup Component */}
+      {/* Action Menu */}
       {activeMenu && (
         <ActionMenu
           isOpen={Boolean(activeMenu)}
