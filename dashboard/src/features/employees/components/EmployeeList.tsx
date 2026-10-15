@@ -113,16 +113,25 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
     <div className="w-full bg-[#0f172a] border border-slate-800 rounded-xl overflow-hidden shadow-sm">
       {/* Component Header */}
       <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-        <button
-          type="button"
-          onClick={onNavigateToEmployees}
-          className="flex items-center gap-2 text-white hover:text-cyan-400 transition-colors group focus:outline-none"
-        >
-          <FiUsers className="text-cyan-400 w-4 h-4 group-hover:scale-110 transition-transform" />
-          <h3 className="text-sm font-semibold tracking-wide group-hover:underline">
-            Team Members & Roles
-          </h3>
-        </button>
+        {onNavigateToEmployees ? (
+          <button
+            type="button"
+            onClick={onNavigateToEmployees}
+            className="flex items-center gap-2 text-white hover:text-cyan-400 transition-colors group focus:outline-none"
+          >
+            <FiUsers className="text-cyan-400 w-4 h-4 group-hover:scale-110 transition-transform" />
+            <h3 className="text-sm font-semibold tracking-wide group-hover:underline">
+              Team Members & Roles
+            </h3>
+          </button>
+        ) : (
+          <div className="flex items-center gap-2 text-white">
+            <FiUsers className="text-cyan-400 w-4 h-4" />
+            <h3 className="text-sm font-semibold tracking-wide">
+              Team Members & Roles
+            </h3>
+          </div>
+        )}
         <span className="text-xs text-slate-400">
           {employees.length} Members
         </span>

@@ -1,12 +1,15 @@
 import React, { useState } from "react";
 import { FiPlus, FiZap } from "react-icons/fi";
-import WorkflowTable, { type WorkflowItem } from "./components/list/WorkflowTable";
+import WorkflowTable, {
+  type WorkflowItem,
+} from "./components/list/WorkflowTable";
 import WorkflowStatsBar, {
   type StatusFilter,
 } from "./components/list/WorkflowStatsBar";
 import WorkflowSearchBar, {
   type CategoryFilter,
 } from "./components/list/WorkflowSearchBar";
+import ConfirmModal from "../../components/ConfirmModal";
 
 interface WorkflowsViewProps {
   onOpenBuilder?: (workflowId?: string) => void;
@@ -84,6 +87,10 @@ export const WorkflowsView: React.FC<WorkflowsViewProps> = ({
     useState<CategoryFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
+  // Track which workflow is pending deletion confirmation
+  const [workflowToDelete, setWorkflowToDelete] =
+    useState<ExtendedWorkflowItem | null>(null);
+
   const handleToggleStatus = (id: string) => {
     setWorkflows((prev) =>
       prev.map((wf) =>
@@ -122,8 +129,28 @@ export const WorkflowsView: React.FC<WorkflowsViewProps> = ({
     downloadAnchor.remove();
   };
 
-  const handleDelete = (id: string) => {
-    setWorkflows((prev) => prev.filter((wf) => wf.id !== id));
+  // Prompt user confirmation instead of directly deleting
+  const handlePromptDelete = (id: string) => {
+    const target = workflows.find((w) => w.id === id);
+    if (target) {
+      setWorkflowToDelete(target);
+    }
+  };
+
+  // Execute confirmed removal
+  const handleConfirmDelete = () => {
+    if (workflowToDelete) {
+      setWorkflows((prev) =>
+        prev.filter((wf) => wf.id !== workflowToDelete.id),
+      );
+      setWorkflowToDelete(null);
+    }
+  };
+
+  const handleResetFilters = () => {
+    setSearchQuery("");
+    setSelectedCategory("all");
+    setStatusFilter("all");
   };
 
   const filteredWorkflows = workflows.filter((wf) => {
@@ -168,7 +195,7 @@ export const WorkflowsView: React.FC<WorkflowsViewProps> = ({
         </button>
       </div>
 
-      {/* 1. Status Pill Stats Bar Component */}
+      {/* Stats Bar */}
       <WorkflowStatsBar
         totalCount={workflows.length}
         activeCount={activeCount}
@@ -177,7 +204,7 @@ export const WorkflowsView: React.FC<WorkflowsViewProps> = ({
         onFilterChange={setStatusFilter}
       />
 
-      {/* 2. Search & Category Filter Component */}
+      {/* Search & Category Filter */}
       <WorkflowSearchBar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -185,7 +212,7 @@ export const WorkflowsView: React.FC<WorkflowsViewProps> = ({
         onSelectCategory={setSelectedCategory}
       />
 
-      {/* 3. Workflows Table Component */}
+      {/* Workflows Table */}
       {filteredWorkflows.length === 0 ? (
         <div className="w-full bg-[#0f172a] border border-slate-800 rounded-xl p-12 text-center">
           <p className="text-sm text-slate-300 font-medium">
@@ -196,11 +223,7 @@ export const WorkflowsView: React.FC<WorkflowsViewProps> = ({
           </p>
           <button
             type="button"
-            onClick={() => {
-              setSearchQuery("");
-              setSelectedCategory("all");
-              setStatusFilter("all");
-            }}
+            onClick={handleResetFilters}
             className="mt-4 px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-cyan-400 hover:bg-slate-800 transition-colors"
           >
             Clear all filters
@@ -212,11 +235,23 @@ export const WorkflowsView: React.FC<WorkflowsViewProps> = ({
           onToggleStatus={handleToggleStatus}
           onDuplicate={handleDuplicate}
           onExportJson={handleExportJson}
-          onDelete={handleDelete}
-          onNavigateToWorkflows={() => onOpenBuilder?.()}
-          onSelectWorkflow={(id) => onOpenBuilder?.(id)}
+          onDelete={handlePromptDelete} // Routed to confirmation prompt
+          onNavigateToWorkflows={handleResetFilters}
+          onSelectWorkflow={(workflowId) => onOpenBuilder?.(workflowId)}
         />
       )}
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmModal
+        isOpen={Boolean(workflowToDelete)}
+        title="Delete Workflow"
+        message={`Are you sure you want to delete "${workflowToDelete?.name}"? All associated trigger webhooks and scheduled jobs will be stopped permanently.`}
+        confirmLabel="Delete Workflow"
+        cancelLabel="Keep Workflow"
+        variant="danger"
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setWorkflowToDelete(null)}
+      />
     </div>
   );
 };

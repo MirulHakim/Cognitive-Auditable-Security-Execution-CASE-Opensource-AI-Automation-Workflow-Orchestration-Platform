@@ -3,7 +3,7 @@ import { MetricCard } from "./components/MetricCard";
 import WorkflowTable, {
   type WorkflowItem,
 } from "../workflows/components/list/WorkflowTable";
-import EmployeeList from "./components/EmployeeList";
+import EmployeeList from "../employees/components/EmployeeList";
 import {
   FiPlayCircle,
   FiCheckCircle,

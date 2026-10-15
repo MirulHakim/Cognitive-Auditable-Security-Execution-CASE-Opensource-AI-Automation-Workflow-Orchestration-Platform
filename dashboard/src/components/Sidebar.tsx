@@ -35,7 +35,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: "dashboard" as NavItem, label: "Dashboard", icon: FiHome },
     { id: "workflows" as NavItem, label: "Workflows", icon: FiGitBranch },
     { id: "employees" as NavItem, label: "Employees", icon: FiUsers },
-    { id: "executions" as NavItem, label: "Executions", icon: FiActivity },
+    { id: "audit" as NavItem, label: "Audit Trail", icon: FiActivity },
     { id: "integrations" as NavItem, label: "Integrations", icon: FiGrid },
   ];
 
