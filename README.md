@@ -62,28 +62,27 @@ The **CASE Platform** provides stateful, human-in-the-loop AI automation with st
 
 ```text
 CASE-Platform/
-├── config/                         # Central settings, whitelists, & prompt templates
-├── dashboard\src/                  # React/Next.js Human-in-the-Loop frontend
-│   ├── components/                 # UI components (Approval cards, document previews)
-│   ├── pages/                      # Dashboard views & job queues
-│   └── services/                   # API client layer
-├── src/                            # Main platform backend code
-│   ├── api/                        # FastAPI REST sub-routers & webhooks
-│   ├── document_generators/        # PDF, Excel, Word & text builder modules
-│   ├── integrations/               # Gmail, Telegram & whitelisted data connectors
-│   ├── llm/                        # Ollama connection clients & schemas
-│   ├── storage/                    # SqliteSaver checkpointers & document store
-│   └── workflow/                   # LangGraph state machine & approval nodes
-├── tests/                          # Automated unit and integration test suite
-├── venv/                           # Local Python virtual environment (git-ignored)
-├── .gitignore                      # Git ignore rules
-├── docker-compose.yml              # Production container config
-├── server.py                       # Primary FastAPI backend entrypoint
-└── README.md                       # Documentation guide
-
+├── backend/                        # Main backend application
+│   ├── src/                        # Core backend source code
+│   │   ├── workflow/                 # LangGraph state machine & approval nodes
+│   │   ├── ai_intent/                # AI intent classification (Gemini)
+│   │   ├── secure_api/               # Secure API Layer — enterprise integration & normalization
+│   │   ├── audit/                    # Audit & Transparency Layer — hash chaining, provenance, export
+│   │   ├── security/                 # Authentication & authorization (JWT, RBAC)
+│   │   ├── document_generators/      # PDF, Excel, Word builder modules
+│   │   │   ├── pdf/
+│   │   │   ├── word/
+│   │   │   └── xlsx/
+│   │   └── storage/                  # Database persistence
+│   ├── tests/                      # Automated unit and integration test suite
+│   ├── .venv/                      # Local Python virtual environment (git-ignored)
+│   ├── requirements.txt
+│   └── server.py                   # Primary FastAPI backend entrypoint
+├── frontend/                       # React frontend (in progress)
+├── .gitignore
+├── docker-compose.yml
+└── README.md
 ```
-
----
 
 ## 🛠️ Prerequisites
 
@@ -107,21 +106,21 @@ ollama pull qwen3.5:9b
 
 ```powershell
 # Clone the repository
-git clone [https://github.com/MirulHakim/Cognitive-Auditable-Security-Execution-CASE-Opensource-AI-Automation-Workflow-Orchestration-Platform.git](https://github.com/MirulHakim/Cognitive-Auditable-Security-Execution-CASE-Opensource-AI-Automation-Workflow-Orchestration-Platform.git)
-cd Cognitive-Auditable-Security-Execution-CASE-Opensource-AI-Automation-Workflow-Orchestration-Platform
+git clone https://github.com/MirulHakim/Cognitive-Auditable-Security-Execution-CASE-Opensource-AI-Automation-Workflow-Orchestration-Platform.git
+cd Cognitive-Auditable-Security-Execution-CASE-Opensource-AI-Automation-Workflow-Orchestration-Platform/backend
 
 # Create Python virtual environment
-python -m venv venv
+python -m venv .venv
 
 # Activate virtual environment (PowerShell)
-.\venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
+
+# Or for cmd.exe
+.\.venv\Scripts\activate.bat
 
 # Install core dependencies
 pip install -r requirements.txt
-
 ```
-
----
 
 ## 💻 Development Guide
 
