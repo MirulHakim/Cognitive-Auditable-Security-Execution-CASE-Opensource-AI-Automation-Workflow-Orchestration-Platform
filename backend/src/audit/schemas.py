@@ -4,81 +4,103 @@ Schemas
 
 Location: src/audit/schemas.py
 
-Moved unchanged from src/secure_api/schemas.py (sections 3-6) in Audit Phase 0.
-They are revised to the AUDIT_MODULE_PLAN.md §5 data model in Phase 1.
+Section 3 (the audit event) follows AUDIT_MODULE_PLAN.md §5.1 since Phase 1.
+Sections 4-6 were moved unchanged from src/secure_api/schemas.py in Phase 0
+and are revised in the phase that uses them (see the TODO on each section).
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+HASH_PATTERN = r"^[a-f0-9]{64}$"
 
 
 # ============================================================================
-# 3. AUDIT EVENT SCHEMAS
+# 3. AUDIT EVENT SCHEMAS (§5.1)
 # ============================================================================
 
 class AuditEventTypeEnum(str, Enum):
-    """Audit event types"""
+    """Event type, derived from the action by the catalogue (§7)."""
     USER_ACTION = "USER_ACTION"
     AI_DECISION = "AI_DECISION"
     SYSTEM_ACTION = "SYSTEM_ACTION"
-    WORKFLOW_STATE_CHANGE = "WORKFLOW_STATE_CHANGE"
     APPROVAL_GATE = "APPROVAL_GATE"
-    EXECUTION_RESULT = "EXECUTION_RESULT"
+    STATE_CHANGE = "STATE_CHANGE"
+    SECURITY_EVENT = "SECURITY_EVENT"
+    INTEGRITY_EVENT = "INTEGRITY_EVENT"
 
 
 class ActorTypeEnum(str, Enum):
-    """Type of actor performing the action"""
+    """Type of actor performing the action (derived from the role, §8.1)."""
     USER = "USER"
     SYSTEM = "SYSTEM"
     AI = "AI"
 
 
-class RecordAuditEventRequest(BaseModel):
-    """Request: Record New Audit Event
-    POST /api/v1/audit/events
-    """
-    event_type: AuditEventTypeEnum
-    action_description: str = Field(..., min_length=1, max_length=500)
-    affected_resource_id: Optional[UUID] = None
-    affected_resource_type: Optional[str] = None
-    action_data: Optional[Dict[str, Any]] = None
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "event_type": "USER_ACTION",
-                "action_description": "Created new enterprise resource",
-                "affected_resource_id": "550e8400-e29b-41d4-a716-446655440000",
-                "affected_resource_type": "REST_API",
-                "action_data": {"resource_name": "Gmail Integration"}
-            }
-        }
+class ActorRoleEnum(str, Enum):
+    ADMIN = "ADMIN"
+    OPERATOR = "OPERATOR"
+    AUDITOR = "AUDITOR"
+    SYSTEM = "SYSTEM"
+    AI = "AI"
 
 
-class AuditEventSchema(BaseModel):
-    """Core Audit Event - Immutable Record stored in database"""
+class AuditSourceEnum(str, Enum):
+    """Where the action came from. Unknown channels are recorded as SYSTEM by the caller."""
+    GMAIL = "GMAIL"
+    TELEGRAM = "TELEGRAM"
+    WEB_FORM = "WEB_FORM"
+    WEB_APP = "WEB_APP"
+    SYSTEM = "SYSTEM"
+    # Reserved for future resources; not used in the MVP.
+    REST_API = "REST_API"
+    JSON_FILE = "JSON_FILE"
+    EMAIL_SERVICE = "EMAIL_SERVICE"
+
+
+class OutcomeEnum(str, Enum):
+    SUCCESS = "SUCCESS"
+    FAILURE = "FAILURE"
+
+
+class AuditEvent(BaseModel):
+    """One append-only audit record. `current_hash` covers every field except
+    `event_id` (§5.2). `action` is checked against catalogue.AuditAction by
+    AuditService; it is kept as text here so the catalogue can grow freely."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     event_id: UUID
     workspace_id: UUID
+    seq: int = Field(ge=1)
+    event_timestamp: datetime
+    execution_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
     event_type: AuditEventTypeEnum
-    actor_id: UUID
+    action: str = Field(min_length=1, max_length=64)
     actor_type: ActorTypeEnum
-    action_description: str
-    affected_resource_id: Optional[UUID] = None
-    affected_resource_type: Optional[str] = None
-    action_data: Optional[Dict[str, Any]] = None
+    actor_id: str = Field(min_length=1, max_length=128)
+    actor_role: ActorRoleEnum
+    target_type: str = Field(pattern=r"^[a-z][a-z_]{0,31}$")
+    target_id: str = Field(min_length=1, max_length=256)
+    source: AuditSourceEnum
+    outcome: OutcomeEnum
+    details: Dict[str, Any]
+    previous_hash: str = Field(pattern=HASH_PATTERN)
+    current_hash: str = Field(pattern=HASH_PATTERN)
 
-    # Hash Chaining Fields
-    previous_hash: Optional[str] = Field(None, pattern=r'^[a-f0-9]{64}$')  # SHA-256 hex
-    current_hash: str = Field(..., pattern=r'^[a-f0-9]{64}$')  # SHA-256 hex
+    @field_validator("event_timestamp")
+    @classmethod
+    def _utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("event_timestamp must be timezone-aware")
+        return value.astimezone(timezone.utc)
 
-    # Temporal Fields
-    timestamp: datetime
-    created_at: datetime
 
+# TODO(Audit Phase 5): revise the timeline schemas below for §9 (flat + grouped by request).
 
 class AuditTimelineEntry(BaseModel):
     """Denormalized Audit Timeline Entry - formatted for UI display"""
@@ -121,6 +143,7 @@ class AuditTimelineResponse(BaseModel):
 # ============================================================================
 # 4. HASH CHAIN VERIFICATION SCHEMAS
 # ============================================================================
+# TODO(Audit Phase 2): replace with the §5.5 verification result (status, head fields).
 
 class VerifyHashChainRequest(BaseModel):
     """Request: Verify Hash Chain Integrity
@@ -163,6 +186,7 @@ class HashVerificationResult(BaseModel):
 # ============================================================================
 # 5. AUDIT EXPORT SCHEMAS
 # ============================================================================
+# TODO(Audit Phase 5): revise for §8.6 (JSON/PDF export with the chain head).
 
 class ExportFormatEnum(str, Enum):
     """Export format options"""
@@ -207,6 +231,7 @@ class ExportAuditLogsResponse(BaseModel):
 # ============================================================================
 # 6. DECISION & PROVENANCE SCHEMAS
 # ============================================================================
+# TODO(Audit Phase 4): replace with the §5.4 provenance record (and rename WorkflowLineage, §3 rule 11).
 
 class AIDecision(BaseModel):
     """AI decision record - tracks AI suggestions/classifications"""

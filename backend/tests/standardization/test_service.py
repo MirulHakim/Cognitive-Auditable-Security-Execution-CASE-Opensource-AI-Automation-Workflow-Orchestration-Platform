@@ -1,3 +1,5 @@
+import copy
+
 import pytest
 
 from src.standardization.adapters.base import ResourceInfo, StandardizationError
@@ -23,7 +25,7 @@ class TestStandardizeMessageDispatch:
         assert details["input_hash"] == msg.raw_hash
         assert details["output_hash"] != msg.raw_hash
         assert events[0]["outcome"] == "SUCCESS"
-        assert events[0]["target"] == "exec1"
+        assert events[0]["target"] == "execution:exec1"
 
     async def test_telegram_dispatch_emits_one_message_standardized_event(self, memory_audit):
         await standardize_message("TELEGRAM", tg_fx.UPDATE_WITH_DOCUMENT, workspace_id="ws1", verified=True, audit=memory_audit)
@@ -216,3 +218,116 @@ class TestServiceDefensivePaths:
         with pytest.raises(StandardizationError) as exc_info:
             await standardize_resource(resource, {}, workspace_id="ws1", execution_id="exec1", audit=memory_audit)
         assert exc_info.value.code == "UNSUPPORTED_INPUT"
+
+
+def _gmail_with_from(value: str) -> dict:
+    msg = copy.deepcopy(gmail_fx.FULL_WITH_ATTACHMENT)
+    for header in msg["payload"]["headers"]:
+        if header["name"] == "From":
+            header["value"] = value
+    return msg
+
+
+class TestAuditTargetsAndSources:
+    """Targets use the Audit '<type>:<id>' format and sources are the fixed
+    Audit list (AUDIT_MODULE_PLAN.md §5.1, §8.1)."""
+
+    async def test_message_without_execution_id_targets_the_workspace(self, memory_audit):
+        await standardize_message("GMAIL", gmail_fx.FULL_WITH_ATTACHMENT, workspace_id="ws1",
+                                  verified=True, audit=memory_audit)
+        assert memory_audit.events[0]["target"] == "workspace:ws1"
+
+    async def test_message_failure_without_execution_id_targets_the_workspace(self, memory_audit):
+        with pytest.raises(StandardizationError):
+            await standardize_message("GMAIL", gmail_fx.MISSING_ID, workspace_id="ws1",
+                                      verified=True, audit=memory_audit)
+        assert memory_audit.events[0]["target"] == "workspace:ws1"
+
+    async def test_message_target_never_uses_the_source_message_id(self, memory_audit):
+        msg = await standardize_message("GMAIL", gmail_fx.FULL_WITH_ATTACHMENT, workspace_id="ws1",
+                                        verified=True, audit=memory_audit)
+        assert msg.source_message_id not in memory_audit.events[0]["target"]
+
+    async def test_resource_failure_targets_the_execution(self, memory_audit):
+        resource = ResourceInfo(resource_id="r1", resource_name="Orders API", resource_type=ResourceType.REST_API)
+        with pytest.raises(StandardizationError):
+            await standardize_resource(resource, rest_fx.ORDERS_RESPONSE, workspace_id="ws1", execution_id="exec1",
+                                       audit=memory_audit)
+        assert memory_audit.events[0]["target"] == "execution:exec1"
+
+    async def test_resource_failure_without_execution_id_targets_the_resource(self, memory_audit):
+        # Only reachable on failure: a StandardRecordSet itself requires an execution_id.
+        resource = ResourceInfo(resource_id="r1", resource_name="Orders API", resource_type=ResourceType.REST_API)
+        with pytest.raises(StandardizationError):
+            await standardize_resource(resource, rest_fx.ORDERS_RESPONSE, workspace_id="ws1", execution_id="",
+                                       audit=memory_audit)
+        assert memory_audit.events[0]["target"] == "resource:r1"
+
+    async def test_unknown_channel_is_recorded_as_system_with_channel_name(self, memory_audit):
+        with pytest.raises(StandardizationError):
+            await standardize_message("SLACK", {}, workspace_id="ws1", audit=memory_audit)
+        event = memory_audit.events[0]
+        assert event["source"] == "SYSTEM"
+        assert event["details"]["source"] == "SYSTEM"
+        assert event["details"]["channel"] == "SLACK"
+
+    async def test_actor_is_system_on_success_and_failure(self, memory_audit):
+        await standardize_message("GMAIL", gmail_fx.FULL_WITH_ATTACHMENT, workspace_id="ws1",
+                                  verified=True, audit=memory_audit)
+        with pytest.raises(StandardizationError):
+            await standardize_message("GMAIL", gmail_fx.MISSING_ID, workspace_id="ws1",
+                                      verified=True, audit=memory_audit)
+        assert [(e["actor"], e["role"]) for e in memory_audit.events] == [("system", "SYSTEM")] * 2
+
+    async def test_known_channel_failure_has_no_channel_key(self, memory_audit):
+        with pytest.raises(StandardizationError):
+            await standardize_message("GMAIL", gmail_fx.MISSING_ID, workspace_id="ws1",
+                                      verified=True, audit=memory_audit)
+        event = memory_audit.events[0]
+        assert event["source"] == "GMAIL"
+        assert "channel" not in event["details"]
+
+
+class TestFailureDetailsCarryFieldNamesOnly:
+    async def test_failure_details_have_error_fields_and_no_reason(self, memory_audit):
+        with pytest.raises(StandardizationError):
+            await standardize_message("GMAIL", gmail_fx.MISSING_ID, workspace_id="ws1",
+                                      verified=True, audit=memory_audit)
+        details = memory_audit.events[0]["details"]
+        assert "reason" not in details
+        assert details["error_fields"] == []
+        assert set(details) == {"stage", "source", "code", "error_fields"}
+
+    async def test_invalid_sender_address_is_not_echoed_into_audit(self, memory_audit):
+        # utils.normalize_email puts the bad value in its error message; the old
+        # `reason` detail copied that message into the audit record.
+        with pytest.raises(StandardizationError) as exc_info:
+            await standardize_message("GMAIL", _gmail_with_from("Leaky Person <leaky.person.at.example.com>"),
+                                      workspace_id="ws1", execution_id="exec1", verified=True, audit=memory_audit)
+        assert "leaky.person" in str(exc_info.value)  # the caller still gets the full message
+        event = memory_audit.events[0]
+        assert event["action"] == "STANDARDIZATION_FAILED"
+        assert "leaky" not in str(event)
+
+    async def test_validation_error_gives_field_names(self, monkeypatch, memory_audit):
+        from pydantic import BaseModel
+
+        class _Dummy(BaseModel):
+            required_field: int
+
+        def boom(*args, **kwargs):
+            _Dummy()
+
+        monkeypatch.setattr("src.standardization.service.gmail.to_message", boom)
+        with pytest.raises(StandardizationError):
+            await standardize_message("GMAIL", {}, workspace_id="ws1", verified=True, audit=memory_audit)
+        assert memory_audit.events[0]["details"]["error_fields"] == ["required_field"]
+
+    async def test_chained_validation_error_from_adapter_gives_field_names(self, memory_audit):
+        # Too many metadata keys fails StandardMessage validation inside the adapter,
+        # which wraps the ValidationError with `raise ... from exc`.
+        form = dict(form_fx.VALID_FORM, metadata={f"k{i}": i for i in range(51)})
+        with pytest.raises(StandardizationError):
+            await standardize_message("WEB_FORM", form, workspace_id="ws1",
+                                      user_email="officer@example.com", audit=memory_audit)
+        assert memory_audit.events[0]["details"]["error_fields"] == ["metadata"]

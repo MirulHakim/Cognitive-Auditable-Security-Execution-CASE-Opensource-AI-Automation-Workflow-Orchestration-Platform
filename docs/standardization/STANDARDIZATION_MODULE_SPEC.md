@@ -275,16 +275,16 @@ Rules:
 
 ## 8. Audit events emitted by this module
 
-Actor: `"CASE System"`, role: `"SYSTEM"`. Always pass `execution_id` when known. Names match the Audit catalogue (`AUDIT_MODULE_PLAN.md` §7).
+Actor: `"system"`, role: `"SYSTEM"` (matches `AUDIT_MODULE_PLAN.md` §5.1). Always pass `execution_id` when known. Names match the Audit catalogue (`AUDIT_MODULE_PLAN.md` §7).
 
 | Action | When | Outcome | `details` |
 |---|---|---|---|
 | `MESSAGE_STANDARDIZED` | `standardize_message` succeeds | SUCCESS | `adapter` (e.g. `gmail_adapter v1`), `schema` (`StandardMessage 1.0`), `input_hash` (= `raw_hash`), `output_hash` (= `sha256_hex` of content), `body_truncated`, `attachment_count` |
-| `STANDARDIZATION_FAILED` | any `StandardizationError` | FAILURE | `stage` (`message` \| `resource`), `source`, `code`, `reason` (max 300 chars) |
+| `STANDARDIZATION_FAILED` | any `StandardizationError` | FAILURE | `stage` (`message` \| `resource`), `source`, `code`, `error_fields` (names of the fields that failed validation, never values; empty when the error has no field), `channel` (only when the channel is unknown). No error message: it can echo input such as an email address |
 | `DATA_STANDARDIZED` *(reserved, not emitted in the MVP)* | `standardize_resource` succeeds | SUCCESS | `adapter`, `schema`, `resource_id`, `resource_type`, `record_count`, `truncated`, `warning_count`, `input_hash`, `output_hash` |
 
-`target` = `execution:<execution_id>` if known, otherwise the source message id.
-`source` = `GMAIL` / `TELEGRAM` / `WEB_FORM`.
+`target` = `execution:<execution_id>` if known; otherwise `workspace:<workspace_id>` for messages (success and failure) and `resource:<resource_id>` for the reserved resource path. Never the source message id: a Gmail Message-ID looks like an email address.
+`source` = `GMAIL` / `TELEGRAM` / `WEB_FORM` (reserved resources: `REST_API` / `JSON_FILE` / `EMAIL_SERVICE`). An unknown channel or resource type is recorded as `SYSTEM`, with its name in `details.channel`.
 
 The `output_hash` of `MESSAGE_STANDARDIZED` is recorded in the provenance record as `std_message_output_hash` (Objective part of O3). It proves exactly what the AI received.
 
