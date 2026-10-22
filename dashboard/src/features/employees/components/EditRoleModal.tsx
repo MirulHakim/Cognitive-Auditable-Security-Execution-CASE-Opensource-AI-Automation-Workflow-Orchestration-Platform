@@ -38,7 +38,7 @@ export const EditRoleModal: React.FC<EditRoleModalProps> = ({
       description:
         "Full cluster management, user provisioning, and destructive actions.",
       icon: FiShield,
-      accentColor: "border-rose-500/40 text-rose-400 bg-rose-500/10",
+      accentColor: "border-danger/40 text-danger bg-danger/10",
     },
     {
       role: "staff",
@@ -46,7 +46,7 @@ export const EditRoleModal: React.FC<EditRoleModalProps> = ({
       description:
         "Standard workflow execution, task dispatch, and routine monitoring.",
       icon: FiUserCheck,
-      accentColor: "border-cyan-500/40 text-cyan-400 bg-cyan-500/10",
+      accentColor: "border-accent-primary/40 text-accent-primary bg-accent-primary/10",
     },
     {
       role: "auditor",
@@ -54,7 +54,7 @@ export const EditRoleModal: React.FC<EditRoleModalProps> = ({
       description:
         "Read-only access to execution histories, logs, and telemetry charts.",
       icon: FiEye,
-      accentColor: "border-amber-500/40 text-amber-400 bg-amber-500/10",
+      accentColor: "border-warning/40 text-warning bg-warning/10",
     },
   ];
 
@@ -66,21 +66,21 @@ export const EditRoleModal: React.FC<EditRoleModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-[#0f172a] border border-slate-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+      <div className="bg-surface border border-subtle rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div className="p-4 border-b border-subtle flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-white">
+            <h3 className="text-sm font-semibold text-primary">
               Modify Employee Role
             </h3>
-            <p className="text-[11px] text-slate-400 mt-0.5">
+            <p className="text-[11px] text-muted mt-0.5">
               Updating access level for{" "}
-              <span className="text-white font-medium">{employee.name}</span>
+              <span className="text-primary font-medium">{employee.name}</span>
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+            className="text-muted hover:text-primary p-1 rounded-lg hover:bg-surface-hover transition-colors"
           >
             <FiX className="w-4 h-4" />
           </button>
@@ -97,8 +97,8 @@ export const EditRoleModal: React.FC<EditRoleModalProps> = ({
                 onClick={() => setSelectedRole(opt.role)}
                 className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start gap-3 select-none ${
                   isSelected
-                    ? "bg-slate-800/80 border-cyan-400/80 ring-1 ring-cyan-400/40"
-                    : "bg-[#0b0f19] border-slate-800/80 hover:border-slate-700"
+                    ? "bg-surface-hover/80 border-accent-primary/80 ring-1 ring-accent-primary/40"
+                    : "bg-background border-subtle/80 hover:border-strong"
                 }`}
               >
                 <div
@@ -108,16 +108,16 @@ export const EditRoleModal: React.FC<EditRoleModalProps> = ({
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-white">
+                    <span className="text-xs font-semibold text-primary">
                       {opt.title}
                     </span>
                     {isSelected && (
-                      <span className="h-4 w-4 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center">
+                      <span className="h-4 w-4 rounded-full bg-accent-primary text-accent-contrast flex items-center justify-center">
                         <FiCheck className="w-2.5 h-2.5 stroke-3" />
                       </span>
                     )}
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                  <p className="text-[11px] text-muted mt-0.5 leading-relaxed">
                     {opt.description}
                   </p>
                 </div>
@@ -125,17 +125,17 @@ export const EditRoleModal: React.FC<EditRoleModalProps> = ({
             );
           })}
 
-          <div className="flex items-center justify-end gap-2 mt-2 pt-3 border-t border-slate-800 text-xs">
+          <div className="flex items-center justify-end gap-2 mt-2 pt-3 border-t border-subtle text-xs">
             <button
               type="button"
               onClick={onClose}
-              className="px-3.5 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 transition-colors"
+              className="px-3.5 py-1.5 rounded-lg border border-strong text-secondary hover:bg-surface-hover transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-1.5 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-semibold transition-colors shadow-sm shadow-cyan-400/20"
+              className="px-4 py-1.5 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold transition-colors shadow-sm shadow-accent-primary/40"
             >
               Update Role
             </button>

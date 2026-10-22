@@ -25,27 +25,27 @@ export const Notification: React.FC<NotificationDropdownProps> = ({
     switch (type) {
       case "success":
         return (
-          <FiCheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
+          <FiCheckCircle className="w-4 h-4 text-success mt-0.5 shrink-0" />
         );
       case "warning":
         return (
-          <FiAlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+          <FiAlertTriangle className="w-4 h-4 text-warning mt-0.5 shrink-0" />
         );
       case "info":
       default:
-        return <FiInfo className="w-4 h-4 text-cyan-400 mt-0.5 shrink-0" />;
+        return <FiInfo className="w-4 h-4 text-accent-primary mt-0.5 shrink-0" />;
     }
   };
 
   return (
-    <div className="absolute right-0 top-12 w-80 sm:w-96 bg-[#0f172a] border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden">
+    <div className="absolute right-0 top-12 w-80 sm:w-96 bg-surface border border-subtle rounded-xl shadow-2xl z-50 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-900/40">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-subtle bg-surface-sunken/40">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-white">
+          <span className="text-sm font-semibold text-primary">
             Notifications
           </span>
-          <span className="text-[10px] px-2 py-0.5 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded-full font-medium">
+          <span className="text-[10px] px-2 py-0.5 bg-accent-primary/10 text-accent-primary border border-accent-primary/20 rounded-full font-medium">
             {notifications.length} New
           </span>
         </div>
@@ -53,14 +53,14 @@ export const Notification: React.FC<NotificationDropdownProps> = ({
           {notifications.length > 0 && (
             <button
               onClick={onClearAll}
-              className="text-xs text-slate-400 hover:text-slate-200 transition-colors"
+              className="text-xs text-muted hover:text-secondary transition-colors"
             >
               Clear all
             </button>
           )}
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-200 transition-colors p-1"
+            className="text-muted hover:text-secondary transition-colors p-1"
           >
             <FiX className="w-4 h-4" />
           </button>
@@ -68,26 +68,26 @@ export const Notification: React.FC<NotificationDropdownProps> = ({
       </div>
 
       {/* List */}
-      <div className="max-h-80 overflow-y-auto divide-y divide-slate-800/60">
+      <div className="max-h-80 overflow-y-auto divide-y divide-subtle/60">
         {notifications.length === 0 ? (
-          <div className="py-8 text-center text-xs text-slate-500">
+          <div className="py-8 text-center text-xs text-faint">
             No notifications to display
           </div>
         ) : (
           notifications.map((n) => (
             <div
               key={n.id}
-              className="p-3.5 hover:bg-slate-900/50 transition-colors flex gap-3 text-left cursor-pointer"
+              className="p-3.5 hover:bg-surface-sunken/50 transition-colors flex gap-3 text-left cursor-pointer"
             >
               {getIcon(n.type)}
               <div className="flex-1">
-                <p className="text-xs font-medium text-slate-200 leading-snug">
+                <p className="text-xs font-medium text-secondary leading-snug">
                   {n.title}
                 </p>
-                <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-2">
+                <p className="text-[11px] text-muted mt-0.5 line-clamp-2">
                   {n.description}
                 </p>
-                <span className="text-[10px] text-slate-500 mt-1 block">
+                <span className="text-[10px] text-faint mt-1 block">
                   {n.time}
                 </span>
               </div>
@@ -97,10 +97,10 @@ export const Notification: React.FC<NotificationDropdownProps> = ({
       </div>
 
       {/* Footer */}
-      <div className="p-2 border-t border-slate-800 bg-slate-900/20 text-center">
+      <div className="p-2 border-t border-subtle bg-surface-sunken/20 text-center">
         <button
           onClick={onClose}
-          className="text-xs text-cyan-400 hover:text-cyan-300 font-medium py-1"
+          className="text-xs text-accent-primary hover:text-accent-primary font-medium py-1"
         >
           View all logs
         </button>

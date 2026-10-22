@@ -28,25 +28,25 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
     switch (variant) {
       case "danger":
         return {
-          iconColor: "text-rose-400",
-          iconBg: "bg-rose-500/10 border-rose-500/20",
+          iconColor: "text-danger",
+          iconBg: "bg-danger/10 border-danger/20",
           btnColor:
-            "bg-rose-600 hover:bg-rose-500 text-white shadow-rose-950/50",
+            "bg-danger-fill hover:bg-danger-fill-hover text-white shadow-danger/20",
         };
       case "warning":
         return {
-          iconColor: "text-amber-400",
-          iconBg: "bg-amber-500/10 border-amber-500/20",
+          iconColor: "text-warning",
+          iconBg: "bg-warning/10 border-warning/20",
           btnColor:
-            "bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-950/50",
+            "bg-warning-fill hover:bg-warning-fill-hover text-accent-contrast shadow-warning/20",
         };
       case "info":
       default:
         return {
-          iconColor: "text-cyan-400",
-          iconBg: "bg-cyan-500/10 border-cyan-500/20",
+          iconColor: "text-accent-primary",
+          iconBg: "bg-accent-primary/10 border-accent-primary/20",
           btnColor:
-            "bg-cyan-400 hover:bg-cyan-300 text-slate-950 shadow-cyan-950/50",
+            "bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast shadow-accent-primary/40",
         };
     }
   };
@@ -55,34 +55,34 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-[#0f172a] border border-slate-800 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+      <div className="bg-surface border border-subtle rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div className="p-4 border-b border-subtle flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div
               className={`w-7 h-7 rounded-lg border flex items-center justify-center ${styles.iconBg} ${styles.iconColor}`}
             >
               <FiAlertTriangle className="w-3.5 h-3.5" />
             </div>
-            <h3 className="text-sm font-semibold text-white">{title}</h3>
+            <h3 className="text-sm font-semibold text-primary">{title}</h3>
           </div>
           <button
             type="button"
             onClick={onCancel}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+            className="text-muted hover:text-primary p-1 rounded-lg hover:bg-surface-hover transition-colors"
           >
             <FiX className="w-4 h-4" />
           </button>
         </div>
 
         <div className="p-5">
-          <p className="text-xs text-slate-300 leading-relaxed">{message}</p>
+          <p className="text-xs text-secondary leading-relaxed">{message}</p>
         </div>
 
-        <div className="px-5 py-3.5 bg-slate-900/40 border-t border-slate-800 flex items-center justify-end gap-2 text-xs">
+        <div className="px-5 py-3.5 bg-surface-sunken/40 border-t border-subtle flex items-center justify-end gap-2 text-xs">
           <button
             type="button"
             onClick={onCancel}
-            className="px-3.5 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 transition-colors font-medium"
+            className="px-3.5 py-1.5 rounded-lg border border-strong text-secondary hover:bg-surface-hover transition-colors font-medium"
           >
             {cancelLabel}
           </button>

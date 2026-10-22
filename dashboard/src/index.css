@@ -1,39 +1,186 @@
 @import "tailwindcss";
 
 /* ==========================================================================
-   Global Dark Theme Scrollbar
+   CASE Design Tokens
+   --------------------------------------------------------------------------
+   Runtime theme variables live WITHOUT the `--color-` prefix because
+   Tailwind v4 reserves the `--color-*` namespace for its theme layer.
+   The `@theme inline` block below maps these runtime variables to semantic
+   Tailwind utilities (bg-background, border-subtle, text-primary, ...).
+
+   To add a new theme: add another [data-theme="<name>"] block with a full
+   set of overrides. The ThemeProvider only toggles the data-theme attribute.
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces */
+  --background: #f8fafc; /* app background (slate-50) */
+  --surface: #ffffff; /* cards / panels */
+  --surface-sunken: #f1f5f9; /* inset wells, icon chips (slate-100) */
+  --surface-hover: #f1f5f9; /* subtle hover fills (slate-100) */
+
+  /* Borders */
+  --border-subtle: #e2e8f0; /* card outlines, dividers (slate-200) */
+  --border-strong: #cbd5e1; /* input outlines, secondary buttons (slate-300) */
+
+  /* Text */
+  --text-primary: #0f172a; /* headings, key values (slate-900) */
+  --text-secondary: #475569; /* labels, body copy (slate-600) */
+  --text-muted: #64748b; /* captions, metadata (slate-500) */
+  --text-faint: #94a3b8; /* placeholders, disabled (slate-400) */
+
+  /* Accent: cyan = primary action */
+  --accent-primary: #0891b2; /* cyan-600 */
+  --accent-primary-hover: #06b6d4; /* cyan-500 */
+  --accent-contrast: #ffffff; /* text on solid accent fills */
+
+  /* Status accents */
+  --success: #059669; /* emerald-600 */
+  --success-fill: #047857; /* emerald-700 */
+  --danger: #e11d48; /* rose-600 */
+  --danger-fill: #be123c; /* rose-700 */
+  --danger-fill-hover: #e11d48; /* rose-600 */
+  --warning: #d97706; /* amber-600 */
+  --warning-fill: #d97706; /* amber-600 */
+  --warning-fill-hover: #b45309; /* amber-700 */
+  --demo: #9333ea; /* purple-600 (demo / tamper states) */
+  --info: #0369a1; /* sky-700 */
+
+  /* Chrome */
+  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-track: #f8fafc;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Surfaces (current production look) */
+  --background: #0b0f19;
+  --surface: #0f172a;
+  --surface-sunken: #0f172a;
+  --surface-hover: #1e293b;
+
+  /* Borders */
+  --border-subtle: #1e2939; /* slate-800 */
+  --border-strong: #334155; /* slate-700 */
+
+  /* Text */
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1; /* slate-300 */
+  --text-muted: #94a3b8; /* slate-400 */
+  --text-faint: #64748b; /* slate-500 */
+
+  /* Accent: cyan = primary action */
+  --accent-primary: #22d3ee; /* cyan-400 */
+  --accent-primary-hover: #67e8f9; /* cyan-300 */
+  --accent-contrast: #020617; /* slate-950 */
+
+  /* Status accents */
+  --success: #34d399; /* emerald-400 */
+  --success-fill: #059669; /* emerald-600 */
+  --danger: #fb7185; /* rose-400 */
+  --danger-fill: #e11d48; /* rose-600 */
+  --danger-fill-hover: #f43f5e; /* rose-500 */
+  --warning: #fbbf24; /* amber-400 */
+  --warning-fill: #f59e0b; /* amber-500 */
+  --warning-fill-hover: #fbbf24; /* amber-400 */
+  --demo: #c084fc; /* purple-400 */
+  --info: #38bdf8; /* sky-400 */
+
+  /* Chrome */
+  --scrollbar-thumb: #334155;
+  --scrollbar-track: #0b0f19;
+}
+
+/* ==========================================================================
+   Tailwind v4 theme mapping (this replaces tailwind.config.js)
+   `inline` makes utilities emit var(--background) directly so a runtime
+   data-theme switch recolors the app with no class changes.
+   Opacity modifiers (bg-accent-primary/10) keep working via color-mix().
+   ========================================================================== */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-hover: var(--surface-hover);
+
+  --color-subtle: var(--border-subtle);
+  --color-strong: var(--border-strong);
+
+  --color-primary: var(--text-primary);
+  --color-secondary: var(--text-secondary);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+
+  --color-accent-primary: var(--accent-primary);
+  --color-accent-primary-hover: var(--accent-primary-hover);
+  --color-accent-contrast: var(--accent-contrast);
+
+  --color-success: var(--success);
+  --color-success-fill: var(--success-fill);
+  --color-danger: var(--danger);
+  --color-danger-fill: var(--danger-fill);
+  --color-danger-fill-hover: var(--danger-fill-hover);
+  --color-warning: var(--warning);
+  --color-warning-fill: var(--warning-fill);
+  --color-warning-fill-hover: var(--warning-fill-hover);
+  --color-demo: var(--demo);
+  --color-info: var(--info);
+
+  --color-scrollbar-thumb: var(--scrollbar-thumb);
+  --color-scrollbar-track: var(--scrollbar-track);
+}
+
+/* ==========================================================================
+   Global Scrollbar (theme-aware)
    ========================================================================== */
 
 /* Modern Standard (Firefox) */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #334155 #0b0f19; /* thumb: slate-700, track: background */
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
 /* WebKit & Chromium (Chrome, Edge, Safari, Brave, Opera) */
 ::-webkit-scrollbar {
-  width: 6px;  /* Vertical scrollbar width */
+  width: 6px; /* Vertical scrollbar width */
   height: 6px; /* Horizontal scrollbar height */
 }
 
 /* The background track */
 ::-webkit-scrollbar-track {
-  background: #0b0f19; /* Matches your app's background */
+  background: var(--scrollbar-track);
 }
 
 /* The draggable thumb */
 ::-webkit-scrollbar-thumb {
-  background: #334155; /* slate-700 */
+  background: var(--scrollbar-thumb);
   border-radius: 9999px;
-  border: 1px solid #0f172a; /* subtle inset border */
+  border: 1px solid var(--surface); /* subtle inset border */
 }
 
 /* Hover state: cyan accent glow */
 ::-webkit-scrollbar-thumb:hover {
-  background: #06b6d4; /* cyan-500 accent */
+  background: var(--accent-primary);
 }
 
 /* Corner where horizontal and vertical scrollbars meet */
 ::-webkit-scrollbar-corner {
-  background: #0b0f19;
+  background: var(--scrollbar-track);
+}
+
+/* ==========================================================================
+   Workflow canvas — touch-friendly tap targets
+   ========================================================================== */
+
+/* Connection ports render as 16px dots but accept taps/clicks across a
+   32px invisible hit area (p-2 equivalent) so fingers can grab them. */
+.connection-handle::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 9999px;
 }

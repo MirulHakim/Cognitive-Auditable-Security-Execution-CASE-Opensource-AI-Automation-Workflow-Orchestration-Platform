@@ -70,31 +70,31 @@ export const AuditView: React.FC = () => {
 
   // 2. RENDER DETAIL INSPECTOR
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto text-slate-100 animate-in fade-in duration-200">
+    <div className="p-6 space-y-6 max-w-7xl mx-auto text-primary animate-in fade-in duration-200">
       {/* Top Breadcrumb & Status */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <button
             type="button"
             onClick={() => setSelectedEventId(null)}
-            className="inline-flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 transition-colors font-medium mb-1"
+            className="inline-flex items-center gap-1.5 text-xs text-accent-primary hover:text-accent-primary transition-colors font-medium mb-1"
           >
             <FiArrowLeft className="w-3.5 h-3.5" />
             <span>Audit Trail</span>
           </button>
-          <h1 className="text-lg font-bold text-white tracking-wide">
+          <h1 className="text-lg font-bold text-primary tracking-wide">
             Event #{record.sequence} · {record.action}
           </h1>
-          <p className="text-xs text-slate-400 mt-0.5">{record.displayTime}</p>
+          <p className="text-xs text-muted mt-0.5">{record.displayTime}</p>
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-success/10 text-success border border-success/20">
+            <span className="w-1.5 h-1.5 rounded-full bg-success" />
             {record.outcome}
           </span>
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
-            <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-surface-hover text-muted border border-strong">
+            <span className="w-1.5 h-1.5 rounded-full bg-muted" />
             {record.integrity}
           </span>
         </div>
@@ -107,20 +107,20 @@ export const AuditView: React.FC = () => {
       </div>
 
       {/* Bottom: Interactive Tamper Simulation Sandbox */}
-      <div className="border border-dashed border-purple-500/40 bg-purple-950/10 rounded-2xl p-5 shadow-sm space-y-4">
+      <div className="border border-dashed border-demo/40 bg-demo/10 rounded-2xl p-5 shadow-sm space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <FiAlertTriangle className="text-purple-400 w-4 h-4" />
-            <h4 className="text-xs font-bold text-purple-200 uppercase tracking-wider">
+            <FiAlertTriangle className="text-demo w-4 h-4" />
+            <h4 className="text-xs font-bold text-demo uppercase tracking-wider">
               Tamper with this record
             </h4>
           </div>
-          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20 font-bold">
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-demo/10 text-demo border border-demo/20 font-bold">
             DEMO TOOL
           </span>
         </div>
 
-        <p className="text-xs text-slate-400 leading-relaxed max-w-3xl">
+        <p className="text-xs text-muted leading-relaxed max-w-3xl">
           Simulates someone editing the database directly, bypassing AxiomFlow.
           Then recompute the hash or run verify integrity to watch cryptographic
           detection trigger.
@@ -130,7 +130,7 @@ export const AuditView: React.FC = () => {
           <select
             value={tamperField}
             onChange={(e) => setTamperField(e.target.value)}
-            className="bg-[#0b0f19] border border-slate-800 text-xs text-white rounded-lg px-3 py-1.5 focus:outline-none focus:border-purple-500/50"
+            className="bg-background border border-subtle text-xs text-primary rounded-lg px-3 py-1.5 focus:outline-none focus:border-demo/50"
           >
             <option value="actor">actor</option>
             <option value="action">action</option>
@@ -143,13 +143,13 @@ export const AuditView: React.FC = () => {
             value={tamperValue}
             onChange={(e) => setTamperValue(e.target.value)}
             placeholder="New value, e.g. Unknown Attacker"
-            className="flex-1 min-w-[200px] bg-[#0b0f19] border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500/50"
+            className="flex-1 min-w-[200px] bg-background border border-subtle rounded-lg px-3 py-1.5 text-xs text-primary placeholder:text-faint focus:outline-none focus:border-demo/50"
           />
 
           <button
             type="button"
             onClick={handleTamperWithoutRehash}
-            className="px-3 py-1.5 rounded-lg border border-purple-500/30 bg-purple-900/20 hover:bg-purple-900/40 text-purple-200 text-xs font-medium transition-colors"
+            className="px-3 py-1.5 rounded-lg border border-demo/30 bg-demo/10 hover:bg-demo/10 text-demo text-xs font-medium transition-colors"
           >
             Edit without re-hashing
           </button>
@@ -157,14 +157,14 @@ export const AuditView: React.FC = () => {
           <button
             type="button"
             onClick={handleTamperAndRehash}
-            className="px-3 py-1.5 rounded-lg border border-purple-500/30 bg-purple-900/20 hover:bg-purple-900/40 text-purple-200 text-xs font-medium transition-colors"
+            className="px-3 py-1.5 rounded-lg border border-demo/30 bg-demo/10 hover:bg-demo/10 text-demo text-xs font-medium transition-colors"
           >
             Edit and re-hash (smarter attacker)
           </button>
         </div>
 
         {tamperNotice && (
-          <div className="p-3 bg-purple-950/40 border border-purple-500/30 rounded-lg text-xs text-purple-300 font-mono">
+          <div className="p-3 bg-demo/10 border border-demo/30 rounded-lg text-xs text-demo font-mono">
             {tamperNotice}
           </div>
         )}

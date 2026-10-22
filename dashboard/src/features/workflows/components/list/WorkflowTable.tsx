@@ -85,30 +85,30 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
   );
 
   return (
-    <div className="w-full bg-[#0f172a] border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+    <div className="w-full bg-surface border border-subtle rounded-xl overflow-hidden shadow-sm">
       {/* Top Header Controls: Goes to list view via onNavigateToWorkflows */}
-      <div className="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
+      <div className="p-4 border-b border-subtle flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
           onClick={onNavigateToWorkflows}
-          className="flex items-center gap-2 text-white hover:text-cyan-400 transition-colors group focus:outline-none"
+          className="flex items-center gap-2 text-primary hover:text-accent-primary transition-colors group focus:outline-none"
         >
-          <FiZap className="text-cyan-400 w-4 h-4 group-hover:scale-110 transition-transform" />
+          <FiZap className="text-accent-primary w-4 h-4 group-hover:scale-110 transition-transform" />
           <h3 className="text-sm font-semibold tracking-wide group-hover:underline">
             Active Workflows ({workflows.length})
           </h3>
         </button>
 
         <div className="flex items-center gap-2 text-xs">
-          <span className="text-slate-400">Sort by:</span>
+          <span className="text-muted">Sort by:</span>
           {(["recent", "name", "status"] as SortField[]).map((field) => (
             <button
               key={field}
               onClick={() => handleSort(field)}
               className={`capitalize px-2.5 py-1 rounded-md border transition-colors flex items-center gap-1 ${
                 sortField === field
-                  ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-400"
-                  : "border-slate-800 text-slate-400 hover:text-slate-200"
+                  ? "bg-accent-primary/10 border-accent-primary/30 text-accent-primary"
+                  : "border-subtle text-muted hover:text-secondary"
               }`}
             >
               {field}
@@ -127,7 +127,7 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="border-b border-slate-800 text-[11px] uppercase tracking-wider text-slate-400 bg-slate-900/30">
+            <tr className="border-b border-subtle text-[11px] uppercase tracking-wider text-muted bg-surface-sunken/30">
               <th className="py-3 px-4 font-medium">Workflow</th>
               <th className="py-3 px-4 font-medium">Trigger</th>
               <th className="py-3 px-4 font-medium">Last Run</th>
@@ -135,10 +135,10 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
               <th className="py-3 px-4 font-medium text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800/60 text-xs">
+          <tbody className="divide-y divide-subtle/60 text-xs">
             {paginatedWorkflows.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-8 text-center text-slate-500">
+                <td colSpan={5} className="py-8 text-center text-faint">
                   No workflows found.
                 </td>
               </tr>
@@ -148,7 +148,7 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
                 return (
                   <tr
                     key={item.id}
-                    className="hover:bg-slate-900/40 transition-colors group"
+                    className="hover:bg-surface-sunken/40 transition-colors group"
                   >
                     <td className="py-3 px-4">
                       {/* Individual Workflow Item: Opens specific workflow via onSelectWorkflow */}
@@ -161,22 +161,22 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
                             console.warn("onSelectWorkflow prop not provided to WorkflowTable");
                           }
                         }}
-                        className="font-medium text-slate-200 hover:text-cyan-400 hover:underline transition-colors text-left block"
+                        className="font-medium text-secondary hover:text-accent-primary hover:underline transition-colors text-left block"
                       >
                         {item.name}
                       </button>
-                      <div className="text-[11px] text-slate-400 truncate max-w-xs">
+                      <div className="text-[11px] text-muted truncate max-w-xs">
                         {item.description}
                       </div>
                     </td>
 
                     <td className="py-3 px-4">
-                      <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 text-[11px]">
+                      <span className="px-2 py-0.5 rounded bg-surface-hover border border-strong text-secondary text-[11px]">
                         {item.triggerType}
                       </span>
                     </td>
 
-                    <td className="py-3 px-4 text-slate-400">{item.lastRun}</td>
+                    <td className="py-3 px-4 text-muted">{item.lastRun}</td>
 
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2.5">
@@ -187,7 +187,7 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
                           aria-checked={isActive}
                           onClick={() => onToggleStatus(item.id)}
                           className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                            isActive ? "bg-cyan-500" : "bg-slate-700"
+                            isActive ? "bg-accent-primary" : "bg-strong"
                           }`}
                         >
                           <span
@@ -198,7 +198,7 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
                         </button>
                         <span
                           className={`text-xs font-medium capitalize select-none ${
-                            isActive ? "text-emerald-400" : "text-rose-400"
+                            isActive ? "text-success" : "text-danger"
                           }`}
                         >
                           {item.status}
@@ -228,7 +228,7 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
                             position: { top, left },
                           });
                         }}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+                        className="p-1.5 rounded-lg text-muted hover:text-secondary hover:bg-surface-hover transition-colors"
                       >
                         <FiMoreVertical className="w-4 h-4 pointer-events-none" />
                       </button>
@@ -243,14 +243,14 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
 
       {/* Pagination Footer */}
       {workflows.length > ITEMS_PER_PAGE && (
-        <div className="px-4 py-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+        <div className="px-4 py-3 border-t border-subtle flex items-center justify-between text-xs text-muted">
           <span>
-            Showing <strong className="text-slate-200">{startIndex + 1}</strong>{" "}
+            Showing <strong className="text-secondary">{startIndex + 1}</strong>{" "}
             to{" "}
-            <strong className="text-slate-200">
+            <strong className="text-secondary">
               {Math.min(startIndex + ITEMS_PER_PAGE, workflows.length)}
             </strong>{" "}
-            of <strong className="text-slate-200">{workflows.length}</strong>
+            of <strong className="text-secondary">{workflows.length}</strong>
           </span>
 
           <div className="flex items-center gap-1.5">
@@ -258,7 +258,7 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
               type="button"
               disabled={currentPage === 1}
               onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-              className="p-1.5 rounded-md border border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-300 disabled:cursor-not-allowed transition-colors"
+              className="p-1.5 rounded-md border border-subtle text-secondary hover:bg-surface-hover hover:text-primary disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-secondary disabled:cursor-not-allowed transition-colors"
               aria-label="Previous Page"
             >
               <FiChevronLeft className="w-4 h-4" />
@@ -271,8 +271,8 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
                 onClick={() => setCurrentPage(page)}
                 className={`min-w-7 h-7 px-2 rounded-md text-xs font-medium border transition-colors ${
                   currentPage === page
-                    ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-400"
-                    : "border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800"
+                    ? "bg-accent-primary/10 border-accent-primary/30 text-accent-primary"
+                    : "border-subtle text-muted hover:text-primary hover:bg-surface-hover"
                 }`}
               >
                 {page}
@@ -285,7 +285,7 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
               onClick={() =>
                 setCurrentPage((prev) => Math.min(prev + 1, totalPages))
               }
-              className="p-1.5 rounded-md border border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-300 disabled:cursor-not-allowed transition-colors"
+              className="p-1.5 rounded-md border border-subtle text-secondary hover:bg-surface-hover hover:text-primary disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-secondary disabled:cursor-not-allowed transition-colors"
               aria-label="Next Page"
             >
               <FiChevronRight className="w-4 h-4" />

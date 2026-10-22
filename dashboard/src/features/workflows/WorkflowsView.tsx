@@ -175,11 +175,11 @@ export const WorkflowsView: React.FC<WorkflowsViewProps> = ({
       {/* Header and Action Button */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-            <FiZap className="w-5 h-5 text-cyan-400" />
+          <h1 className="text-xl font-bold text-primary tracking-tight flex items-center gap-2">
+            <FiZap className="w-5 h-5 text-accent-primary" />
             My Workflows
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-muted mt-1">
             Build, monitor, and deploy automated multi-agent pipelines and
             webhooks.
           </p>
@@ -188,7 +188,7 @@ export const WorkflowsView: React.FC<WorkflowsViewProps> = ({
         <button
           type="button"
           onClick={() => onOpenBuilder?.()}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-semibold text-xs transition-all shadow-md shadow-cyan-400/20 active:scale-95"
+          className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold text-xs transition-all shadow-md shadow-accent-primary/40 active:scale-95"
         >
           <FiPlus className="w-4 h-4 stroke-[2.5]" />
           Create Workflow
@@ -214,17 +214,17 @@ export const WorkflowsView: React.FC<WorkflowsViewProps> = ({
 
       {/* Workflows Table */}
       {filteredWorkflows.length === 0 ? (
-        <div className="w-full bg-[#0f172a] border border-slate-800 rounded-xl p-12 text-center">
-          <p className="text-sm text-slate-300 font-medium">
+        <div className="w-full bg-surface border border-subtle rounded-xl p-12 text-center">
+          <p className="text-sm text-secondary font-medium">
             No workflows match your criteria
           </p>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-faint mt-1">
             Try resetting your search or filter tags.
           </p>
           <button
             type="button"
             onClick={handleResetFilters}
-            className="mt-4 px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-cyan-400 hover:bg-slate-800 transition-colors"
+            className="mt-4 px-3 py-1.5 rounded-lg border border-strong text-xs text-accent-primary hover:bg-surface-hover transition-colors"
           >
             Clear all filters
           </button>

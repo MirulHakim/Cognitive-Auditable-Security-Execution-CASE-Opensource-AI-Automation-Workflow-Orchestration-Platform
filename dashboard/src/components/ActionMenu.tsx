@@ -86,7 +86,7 @@ export const ActionMenu: React.FC<ActionMenuModalProps> = ({
         top: `${Math.max(8, clampedTop)}px`,
         left: `${Math.max(8, clampedLeft)}px`,
       }}
-      className="w-40 bg-[#0f172a] border border-slate-800 rounded-lg shadow-2xl z-50 py-1 divide-y divide-slate-800/60 animate-in fade-in zoom-in-95 duration-100"
+      className="w-40 bg-surface border border-subtle rounded-lg shadow-2xl z-50 py-1 divide-y divide-subtle/60 animate-in fade-in zoom-in-95 duration-100"
     >
       {defaultOptions.length > 0 && (
         <div className="py-1">
@@ -102,9 +102,9 @@ export const ActionMenu: React.FC<ActionMenuModalProps> = ({
                   opt.onClick();
                   onClose();
                 }}
-                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-300 hover:text-white hover:bg-slate-900 transition-colors text-left"
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-secondary hover:text-primary hover:bg-surface-sunken transition-colors text-left"
               >
-                <Icon className="w-3.5 h-3.5 text-slate-400" />
+                <Icon className="w-3.5 h-3.5 text-muted" />
                 <span>{opt.label}</span>
               </button>
             );
@@ -126,7 +126,7 @@ export const ActionMenu: React.FC<ActionMenuModalProps> = ({
                   opt.onClick();
                   onClose();
                 }}
-                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-rose-400 hover:bg-rose-500/10 transition-colors text-left"
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-danger hover:bg-danger-fill-hover/10 transition-colors text-left"
               >
                 <Icon className="w-3.5 h-3.5" />
                 <span>{opt.label}</span>
