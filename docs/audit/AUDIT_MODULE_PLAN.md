@@ -1,8 +1,16 @@
 # CASE — Audit & Transparency Layer
 **Module plan for implementation (owner: Ain)**
-Version 1.2 · 17 Oct 2026
+Version 1.3 · 22 Oct 2026
 
 > **For Claude in VS Code:** read this whole file, `docs/standardization/STANDARDIZATION_MODULE_SPEC.md` and `backend/server.py` before writing code. Follow §3. Work one phase at a time (§11) and stop for review after each. Do not change anything listed in §12.2 (open team decisions) without asking. Appendix A describes how other modules are expected to behave; Audit only records it.
+
+### Changes from v1.2 (Phase 1)
+- **`source` is a fixed list (§5.1).** GMAIL, TELEGRAM, WEB_FORM, WEB_APP, SYSTEM, plus reserved REST_API, JSON_FILE, EMAIL_SERVICE. Anything else is rejected; callers record an unknown channel as `SYSTEM` with its name in `details.channel`.
+- **Forbidden-key suffixes (§7).** Besides the whole-key list, keys ending in `_token`, `_secret`, `_password`, `_api_key` or `_credentials` are rejected (e.g. `bot_token`, `access_token`). No `body_` prefix rule (`body_truncated` is valid).
+- **Two Standardization rows in the required-details table (§7):** `MESSAGE_STANDARDIZED` and `STANDARDIZATION_FAILED`.
+- **`error_fields` replaces `reason` in `STANDARDIZATION_FAILED`.** Field names only; error messages could echo input such as an email address (rule 5).
+- **Target fallback.** Standardization uses `execution:<id>` when known, otherwise `workspace:<id>` (messages) or `resource:<id>` (reserved resource path); never the source message id. Its actor is `system`.
+- **Character rules for ids.** `actor_id`, `target_id` and `execution_id` are references, not free text: no control characters and no `@`, so an email address cannot be stored where rule 5 requires a hash. Model names such as `qwen3.5:9b` remain valid.
 
 ### Changes from v1.1
 - **Template flow updated (§7, §5.4, Appendix A).** AI suggests a template; the OPERATOR can accept it, switch to another template, or request a new one through a prompt (AI drafts it). New templates are saved for reuse **without ADMIN approval**; ADMIN can deactivate a template. Gate 1 remains the control point. New events: `TEMPLATE_REQUESTED`, `AI_TEMPLATE_DRAFTED`, `TEMPLATE_CREATED` (replaces `TEMPLATE_REGISTERED`), `TEMPLATE_DEACTIVATED`. `TEMPLATE_MANUALLY_SELECTED` now also covers the OPERATOR switching away from the AI's choice.
@@ -133,7 +141,7 @@ Audit must not import the internals of the AI classifier, the Workflow Engine or
 | `actor_id` | text | user id, `system`, or model name (e.g. `qwen3.5:9b`) |
 | `actor_role` | text | ADMIN / OPERATOR / AUDITOR / SYSTEM / AI |
 | `target_type`, `target_id` | text | split from `target` (`"execution:<id>"`, `"template:<id>"`, `"integration:<id>"`, `"workspace:<uuid>"`) |
-| `source` | text | GMAIL, TELEGRAM, WEB_FORM, WEB_APP, SYSTEM |
+| `source` | text | GMAIL, TELEGRAM, WEB_FORM, WEB_APP, SYSTEM; plus REST_API, JSON_FILE, EMAIL_SERVICE (reserved for future resources). Fixed list; anything else is rejected. Callers record an unknown channel as `SYSTEM` and put its name in `details.channel` |
 | `outcome` | `SUCCESS` \| `FAILURE` | |
 | `details` | jsonb | ids, codes, counts, labels, hashes; ≤ 8 KB canonical JSON |
 | `previous_hash` | char(64) | genesis = 64 zeros |
@@ -249,6 +257,8 @@ One `AuditAction` enum in `catalogue.py`, each mapped to its `event_type`. Unkno
 
 | Action | Required keys |
 |---|---|
+| `MESSAGE_STANDARDIZED` | `adapter`, `schema`, `input_hash`, `output_hash`, `body_truncated`, `attachment_count` |
+| `STANDARDIZATION_FAILED` | `stage` (`message` \| `resource`), `source`, `code`, `error_fields` (field names only; `channel` only when the channel is unknown) |
 | `AI_TEMPLATE_SELECTED` | `template_id`, `template_version`, `source_template_hash`, `confidence` (string) |
 | `AI_TEMPLATE_NO_MATCH` | `candidates_checked` (count), `reason_code` |
 | `TEMPLATE_MANUALLY_SELECTED` | `ai_template_id` (null after NO_MATCH), `template_id`, `template_version`, `source_template_hash` |
@@ -271,7 +281,7 @@ One `AuditAction` enum in `catalogue.py`, each mapped to its `event_type`. Unkno
 
 Other actions: free-form details, still checked for forbidden keys and size.
 
-**Forbidden keys** (checked recursively, case-insensitive): `body`, `body_text`, `content`, `raw`, `prompt`, `prompt_text`, `password`, `token`, `secret`, `api_key`, `credentials`.
+**Forbidden keys** (checked recursively, case-insensitive): `body`, `body_text`, `content`, `raw`, `prompt`, `prompt_text`, `password`, `token`, `secret`, `api_key`, `credentials` (whole-key match, so `content_hash` and `prompt_hash` stay valid), plus any key ending in `_token`, `_secret`, `_password`, `_api_key` or `_credentials` (e.g. `bot_token`, `access_token`). There is no `body_` prefix rule (`body_truncated` is valid).
 
 ---
 
