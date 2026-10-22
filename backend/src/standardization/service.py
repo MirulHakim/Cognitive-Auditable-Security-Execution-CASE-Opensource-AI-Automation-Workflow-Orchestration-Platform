@@ -20,7 +20,7 @@ from pydantic import ValidationError
 
 from .adapters import gmail, json_file, rest_api, telegram, web_form
 from .adapters.base import FieldMapping, ResourceInfo, StandardizationError, build_record_set
-from .audit_port import AuditLogger, NullAuditLogger
+from src.audit.port import AuditLogger, NullAuditLogger
 from .schemas import SCHEMA_VERSION, ResourceType, StandardMessage, StandardRecord, StandardRecordSet
 from .utils import sha256_hex
 

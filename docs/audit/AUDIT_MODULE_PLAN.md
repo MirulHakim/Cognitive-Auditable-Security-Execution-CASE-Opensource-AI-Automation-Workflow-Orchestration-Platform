@@ -10,6 +10,7 @@ Version 1.3 · 22 Oct 2026
 - **Two Standardization rows in the required-details table (§7):** `MESSAGE_STANDARDIZED` and `STANDARDIZATION_FAILED`.
 - **`error_fields` replaces `reason` in `STANDARDIZATION_FAILED`.** Field names only; error messages could echo input such as an email address (rule 5).
 - **Target fallback.** Standardization uses `execution:<id>` when known, otherwise `workspace:<id>` (messages) or `resource:<id>` (reserved resource path); never the source message id. Its actor is `system`.
+- **Shared audit port (§8, §8.1).** The `AuditLogger` interface moved from `src/standardization/audit_port.py` to `src/audit/port.py` so every module imports it from one place; the old path re-exports it.
 - **Character rules for ids.** `actor_id`, `target_id` and `execution_id` are references, not free text: no control characters and no `@`, so an email address cannot be stored where rule 5 requires a hash. Model names such as `qwen3.5:9b` remain valid.
 
 ### Changes from v1.1
@@ -289,6 +290,7 @@ Other actions: free-form details, still checked for forbidden keys and size.
 
 ```
 src/audit/
+├── port.py            # public contract: AuditLogger protocol, NullAuditLogger, MemoryAuditLogger (imported by every module)
 ├── schemas.py         # moved + revised models (event, timeline entry, provenance, verification, export)
 ├── catalogue.py       # AuditAction enum, event_type mapping, required-details models, terminal statuses, gate-order rules
 ├── canonical.py       # HASH_VERSION, HASH_FIELDS, canonical_json(), compute_event_hash(), compute_lineage_hash(), compute_record_hash()
@@ -302,7 +304,9 @@ src/audit/
 
 ### 8.1 Interface: `log_event`
 
-Phase 0 changes `standardization/audit_port.py` to:
+The interface lives in `src/audit/port.py`, the Audit module's public contract. Every module (Standardization, Workflow Engine, AI, Ingress, Integrations) imports `AuditLogger` from there for its type hints and receives the real `AuditService` as a parameter. `port.py` has no imports from the rest of the package, so depending on it is not depending on Audit's internals. `standardization/audit_port.py` re-exports it for older imports.
+
+Phase 0 made the interface async with `session`:
 
 ```python
 class AuditLogger(Protocol):

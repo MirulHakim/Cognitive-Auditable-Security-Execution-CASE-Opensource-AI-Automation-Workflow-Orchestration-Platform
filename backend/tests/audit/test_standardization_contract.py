@@ -9,7 +9,7 @@ import pytest
 
 from src.audit.canonical import compute_event_hash
 from src.standardization.adapters.base import ResourceInfo, StandardizationError
-from src.standardization.audit_port import MemoryAuditLogger
+from src.audit.port import MemoryAuditLogger
 from src.standardization.schemas import ResourceType
 from src.standardization.service import standardize_message, standardize_resource
 from tests.audit.conftest import WS
