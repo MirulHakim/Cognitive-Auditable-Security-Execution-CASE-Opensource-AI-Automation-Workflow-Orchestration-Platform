@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { FiCopy, FiCheck, FiZap } from "react-icons/fi";
+import { FiZap } from "react-icons/fi";
 import { NODE_REGISTRY } from "../../../constants/NodeRegistry";
 
 export interface CanvasNodeData {
@@ -14,29 +14,44 @@ interface TriggerNodeProps {
   scale: number;
   onUpdateSize?: (id: string, width: number, height: number) => void;
   onUpdatePosition: (id: string, newPos: { x: number; y: number }) => void;
+  onUpdateConfig?: (id: string, patch: Record<string, unknown>) => void;
   onStartConnection: (
     nodeId: string,
     portType: "output",
     startPos: { x: number; y: number },
     color: string,
   ) => void;
+  onTargetPortMouseDown?: (
+    e: React.MouseEvent,
+    targetNodeId: string,
+    targetPort: string,
+  ) => void;
+  /** Converts screen coordinates (e.g. from a port's getBoundingClientRect)
+   *  into canvas/world coordinates using the editor's transform state. */
+  toCanvasCoords?: (
+    clientX: number,
+    clientY: number,
+  ) => { x: number; y: number };
   onDragStart?: (nodeId: string) => void;
   onDragMove?: (clientX: number, clientY: number) => void;
   onDragEnd?: (nodeId: string, clientX: number, clientY: number) => void;
+  onOpenSettings?: (nodeId: string) => void;
 }
 
 export const TriggerNode: React.FC<TriggerNodeProps> = ({
   node,
   scale,
-  onUpdateSize, // 👈 Destructured properly
+  onUpdateSize,
   onUpdatePosition,
   onStartConnection,
+  onTargetPortMouseDown,
+  toCanvasCoords,
+  onOpenSettings,
   onDragStart,
   onDragMove,
   onDragEnd,
 }) => {
   const nodeRef = useRef<HTMLDivElement>(null);
-  const [copied, setCopied] = useState(false);
   const [isDraggingNode, setIsDraggingNode] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
@@ -55,13 +70,6 @@ export const TriggerNode: React.FC<TriggerNodeProps> = ({
   const title = definition.title;
   const badge = definition.badge || "EVENT";
 
-  const handleCopy = (text: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-
   // Node Dragging Handlers
   const handleMouseDown = (e: React.MouseEvent) => {
     if (
@@ -79,6 +87,11 @@ export const TriggerNode: React.FC<TriggerNodeProps> = ({
       y: e.clientY / scale - node.position.y,
     });
     onDragStart?.(node.id);
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onOpenSettings?.(node.id);
   };
 
   const handleMouseMove = (e: MouseEvent) => {
@@ -125,137 +138,86 @@ export const TriggerNode: React.FC<TriggerNodeProps> = ({
     }
   }, [isDraggingNode, dragOffset, scale]);
 
-  // Port Cable Connection Handler
-  const handlePortMouseDown = (e: React.MouseEvent) => {
+  // Port Cable Connection Handler — pixel-perfect snapping: read the port
+  // dot's live screen rect and convert it into world coordinates.
+  const handlePortMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     e.stopPropagation();
-    const currentWidth = nodeRef.current ? nodeRef.current.offsetWidth : 260;
-    const portWorldX = node.position.x + currentWidth;
-    const portWorldY = node.position.y + 32; // Center-height of h-16 (64px / 2)
-    onStartConnection(
-      node.id,
-      "output",
-      { x: portWorldX, y: portWorldY },
-      "#fbbf24",
-    );
+    const rect = e.currentTarget.getBoundingClientRect();
+    const world = toCanvasCoords
+      ? toCanvasCoords(rect.left + rect.width / 2, rect.top + rect.height / 2)
+      : {
+          x:
+            node.position.x +
+            (nodeRef.current ? nodeRef.current.offsetWidth : 260),
+          y: node.position.y + 32,
+        };
+    onStartConnection(node.id, "output", world, "var(--warning)");
   };
 
-  // Dynamic Trigger Content Renderer
-  const renderTriggerContent = () => {
-    switch (node.type) {
-      case "trigger-webhook": {
-        const webhookUrl = `https://api.axiomflow.internal/v1/hooks/${node.id.slice(-6)}`;
-        return (
-          <div className="flex items-center gap-1.5 mt-0.5 whitespace-nowrap">
-            <span className="text-[10px] text-slate-400 font-mono">
-              /v1/hooks/{node.id.slice(-6)}
-            </span>
-            <button
-              type="button"
-              onClick={(e) => handleCopy(webhookUrl, e)}
-              className="text-slate-400 hover:text-amber-400 transition-colors p-0.5"
-              title="Copy Webhook URL"
-            >
-              {copied ? (
-                <FiCheck className="w-3 h-3 text-emerald-400" />
-              ) : (
-                <FiCopy className="w-3 h-3" />
-              )}
-            </button>
-          </div>
-        );
-      }
-
-      case "trigger-cron":
-        return (
-          <div className="flex items-center gap-2 mt-0.5 whitespace-nowrap">
-            <span className="text-[10px] text-amber-300 font-mono font-medium">
-              {node.config?.cronExpression || "0 9 * * 1-5"}
-            </span>
-            <span className="text-[10px] text-slate-400">
-              ({node.config?.humanTime || "Every weekday @ 9:00 AM"})
-            </span>
-          </div>
-        );
-
-      case "trigger-email": {
-        const inbox = node.config?.inbox || "inbound@app.axiomflow.io";
-        return (
-          <div className="flex items-center gap-1.5 mt-0.5 whitespace-nowrap">
-            <span className="text-[10px] text-slate-400 font-mono">
-              {inbox}
-            </span>
-            <button
-              type="button"
-              onClick={(e) => handleCopy(inbox, e)}
-              className="text-slate-400 hover:text-amber-400 transition-colors p-0.5"
-              title="Copy Inbox Address"
-            >
-              {copied ? (
-                <FiCheck className="w-3 h-3 text-emerald-400" />
-              ) : (
-                <FiCopy className="w-3 h-3" />
-              )}
-            </button>
-          </div>
-        );
-      }
-
-      case "trigger-telegram":
-        return (
-          <div className="flex items-center gap-1 mt-0.5 whitespace-nowrap">
-            <span className="text-[10px] text-slate-400 font-mono">
-              {node.config?.command || "/start, /alert, text"}
-            </span>
-          </div>
-        );
-
-      default:
-        return (
-          <span className="text-[10px] text-slate-500 whitespace-nowrap">
-            Listening for events
-          </span>
-        );
-    }
-  };
+  // Plain-English subtitle per trigger type (no technical payloads on canvas)
+  const subtitle =
+    node.type === "trigger-webhook"
+      ? "Receives incoming webhooks"
+      : node.type === "trigger-cron"
+        ? node.config?.humanTime || "Runs on a schedule"
+        : node.type === "trigger-email"
+          ? "Listens for new emails"
+          : node.type === "trigger-telegram"
+            ? "Listens for bot messages"
+            : "Listening for events";
 
   return (
     <div
       ref={nodeRef}
       onMouseDown={handleMouseDown}
+      onDoubleClick={handleDoubleClick}
       style={{
         transform: `translate(${node.position.x}px, ${node.position.y}px)`,
         position: "absolute",
       }}
-      className={`w-max min-w-[240px] h-16 bg-[#0f172a] border border-amber-500/40 rounded-l-2xl rounded-r-full shadow-xl select-none flex items-center pl-3.5 pr-10 relative ${
+      className={`w-max min-w-[240px] h-16 bg-surface border-2 border-warning/40 rounded-xl shadow-xl select-none flex items-center pl-3.5 pr-10 relative transition-colors duration-200 ${
         isDraggingNode
-          ? "cursor-grabbing ring-2 ring-amber-500/50 shadow-amber-500/20"
-          : "cursor-grab hover:border-amber-500/70 hover:shadow-lg transition-shadow"
+          ? "cursor-grabbing ring-2 ring-warning/50 shadow-warning/20"
+          : "cursor-grab hover:border-warning/70 hover:shadow-lg"
       }`}
+      title="Double-click to open settings"
     >
       {/* Icon Badge */}
-      <div className="h-9 w-9 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 mr-3">
+      <div className="h-9 w-9 rounded-xl bg-warning/10 border border-warning/20 text-warning flex items-center justify-center shrink-0 mr-3">
         <IconComponent className="w-4 h-4" />
       </div>
 
-      {/* Main Info */}
+      {/* Compact info: icon + title + plain-English subtitle */}
       <div className="flex flex-col justify-center min-w-0">
         <div className="flex items-center gap-2 whitespace-nowrap">
-          <span className="text-xs font-semibold text-white tracking-wide">
+          <span className="text-xs font-semibold text-primary tracking-wide">
             {title}
           </span>
-          <span className="text-[9px] font-mono text-amber-400/90 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 shrink-0">
+          <span className="text-[9px] font-mono text-warning/90 bg-warning/10 px-1.5 py-0.5 rounded border border-warning/20 shrink-0">
             {badge}
           </span>
         </div>
-        {renderTriggerContent()}
+        <span className="text-[10px] text-muted truncate whitespace-nowrap">
+          {subtitle}
+        </span>
       </div>
 
-      {/* Output Port Dot */}
+      {/* Output Port Dot — also a LIFO detach target for wires anchored here */}
       <div
         data-port-id={`${node.id}-output`}
-        onMouseDown={handlePortMouseDown}
-        title="Drag connection wire to next node"
-        className="connection-handle absolute -right-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-amber-400 border-3 border-[#0b0f19] hover:scale-125 hover:bg-amber-300 transition-transform cursor-crosshair shadow-md shadow-amber-400/50 z-30"
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          if (onTargetPortMouseDown) {
+            onTargetPortMouseDown(e, node.id, "output");
+          } else {
+            handlePortMouseDown(e);
+          }
+        }}
+        onMouseUp={(e) => {
+          e.stopPropagation();
+        }}
+        title="Output port — drag out to detach the newest wire (LIFO), or drag out to start a new wire"
+        className="connection-handle absolute -right-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-warning border-3 border-background hover:scale-125 hover:bg-warning transition-transform cursor-crosshair shadow-md shadow-warning/50 z-30"
       />
     </div>
   );

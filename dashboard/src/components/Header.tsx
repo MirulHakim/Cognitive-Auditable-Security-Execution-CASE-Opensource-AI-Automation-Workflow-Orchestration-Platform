@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import Notification, { type NotificationItem } from "./Notification.tsx";
-import { FiBell, FiSearch, FiChevronRight, FiPlay } from "react-icons/fi";
+import { FiBell, FiSearch, FiChevronRight, FiPlay, FiMenu } from "react-icons/fi";
 import UserProfileMenu, { type UserProfile } from "./UserProfileMenu";
 
 interface HeaderProps {
@@ -13,6 +13,8 @@ interface HeaderProps {
   onLogout?: () => void;
   onSave?: () => void;
   onDeploy?: () => void;
+  /** Opens the mobile (< 768px) sidebar drawer. */
+  onMenuClick?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -25,6 +27,7 @@ export const Header: React.FC<HeaderProps> = ({
   onLogout,
   onSave,
   onDeploy,
+  onMenuClick,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -74,22 +77,34 @@ export const Header: React.FC<HeaderProps> = ({
   }, [isOpen]);
 
   const statusStyles = {
-    active: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-    draft: "bg-slate-500/10 text-slate-400 border-slate-500/20",
-    paused: "bg-amber-500/10 text-amber-400 border-amber-500/20",
-    error: "bg-rose-500/10 text-rose-400 border-rose-500/20",
+    active: "bg-success/10 text-success border-success/20",
+    draft: "bg-muted/10 text-muted border-muted/20",
+    paused: "bg-warning/10 text-warning border-warning/20",
+    error: "bg-danger/10 text-danger border-danger/20",
   };
 
   return (
-    <header className="w-full h-16 bg-[#0f172a] border-b border-slate-800 text-slate-200 px-6 flex items-center justify-between select-none">
-      {/* Left: Branding & Conditional Workflow Context */}
-      <div className="flex items-center gap-3">
+    <header className="w-full h-16 bg-surface border-b border-subtle text-secondary px-3 sm:px-6 flex items-center justify-between select-none">
+      {/* Left: Mobile menu, Branding & Conditional Workflow Context */}
+      <div className="flex items-center gap-3 min-w-0">
+        {/* Mobile hamburger — toggles the slide-out sidebar drawer */}
+        {onMenuClick && (
+          <button
+            type="button"
+            onClick={onMenuClick}
+            aria-label="Open navigation menu"
+            className="md:hidden p-2 -ml-1 rounded-lg text-muted hover:text-primary hover:bg-surface-hover transition-colors shrink-0"
+          >
+            <FiMenu className="w-5 h-5" />
+          </button>
+        )}
+
         {/* Brand / Logo */}
         <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-lg bg-cyan-500 flex items-center justify-center font-bold text-slate-950 shadow-md shadow-cyan-500/20">
+          <div className="h-8 w-8 rounded-lg bg-accent-primary flex items-center justify-center font-bold text-accent-contrast shadow-md shadow-accent-primary/40">
             C
           </div>
-          <span className="font-semibold text-white tracking-tight hidden sm:inline">
+          <span className="font-semibold text-primary tracking-tight hidden sm:inline">
             CASE
           </span>
         </div>
@@ -97,9 +112,9 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Workflow Title & Status: only visible while editing in canvas */}
         {isEditing && workflowName && (
           <>
-            <FiChevronRight className="w-4 h-4 text-slate-600 hidden sm:block" />
+            <FiChevronRight className="w-4 h-4 text-faint/50 hidden sm:block" />
             <div className="flex items-center gap-2.5">
-              <span className="text-xs font-medium text-slate-200">
+              <span className="text-xs font-medium text-secondary">
                 {workflowName}
               </span>
               <span
@@ -108,10 +123,10 @@ export const Header: React.FC<HeaderProps> = ({
                 <span
                   className={`w-1.5 h-1.5 rounded-full ${
                     status === "active"
-                      ? "bg-emerald-400 animate-pulse"
+                      ? "bg-success animate-pulse"
                       : status === "error"
-                        ? "bg-rose-400"
-                        : "bg-slate-400"
+                        ? "bg-danger"
+                        : "bg-muted"
                   }`}
                 />
                 {status}
@@ -123,11 +138,11 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Middle: Search Bar */}
       <div className="hidden md:flex items-center relative w-72">
-        <FiSearch className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
+        <FiSearch className="w-4 h-4 text-muted absolute left-3 pointer-events-none" />
         <input
           type="text"
           placeholder="Search nodes, actions, logs..."
-          className="w-full bg-slate-900/60 border border-slate-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors"
+          className="w-full bg-surface-sunken/60 border border-subtle rounded-lg pl-9 pr-3 py-1.5 text-xs text-secondary placeholder:text-faint focus:outline-none focus:border-accent-primary transition-colors"
         />
       </div>
 
@@ -140,20 +155,20 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 type="button"
                 onClick={onSave}
-                className="text-xs px-3 py-1.5 rounded-md font-medium text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 transition-colors"
+                className="text-xs px-3 py-1.5 rounded-md font-medium text-secondary hover:text-primary bg-surface-hover/80 hover:bg-surface-hover border border-strong/60 transition-colors"
               >
                 Export JSON
               </button>
               <button
                 type="button"
                 onClick={onDeploy}
-                className="text-xs px-3.5 py-1.5 rounded-md font-medium text-slate-950 bg-cyan-400 hover:bg-cyan-300 transition-colors flex items-center gap-1.5 shadow-sm shadow-cyan-400/20"
+                className="text-xs px-3.5 py-1.5 rounded-md font-medium text-accent-contrast bg-accent-primary hover:bg-accent-primary-hover transition-colors flex items-center gap-1.5 shadow-sm shadow-accent-primary/40"
               >
                 <FiPlay className="w-3 h-3 fill-current" />
                 <span>Deploy Agent</span>
               </button>
             </div>
-            <div className="h-4 w-px bg-slate-800" />
+            <div className="h-4 w-px bg-surface-hover" />
           </>
         )}
 
@@ -162,13 +177,13 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             onClick={() => setIsOpen((prev) => !prev)}
-            className={`relative p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-900 rounded-lg transition-colors ${
-              isOpen ? "bg-slate-900 text-white" : ""
+            className={`relative p-2 text-muted hover:text-secondary hover:bg-surface-sunken rounded-lg transition-colors ${
+              isOpen ? "bg-surface-sunken text-primary" : ""
             }`}
           >
             <FiBell className="w-4 h-4" />
             {notifications.some((n) => !n.read) && (
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-cyan-500 ring-2 ring-[#0f172a]" />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-accent-primary ring-2 ring-surface" />
             )}
           </button>
 
@@ -190,7 +205,7 @@ export const Header: React.FC<HeaderProps> = ({
             onLogout={onLogout}
           />
         ) : (
-          <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-semibold text-cyan-400">
+          <div className="w-8 h-8 rounded-full bg-surface-hover border border-strong flex items-center justify-center text-xs font-semibold text-accent-primary">
             {currentUser?.avatarInitials || "AH"}
           </div>
         )}

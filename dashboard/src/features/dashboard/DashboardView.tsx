@@ -99,8 +99,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     <div className="p-6 space-y-6">
       {/* Page Title */}
       <div>
-        <h1 className="text-xl font-semibold text-white">Dashboard Overview</h1>
-        <p className="text-sm text-slate-400">
+        <h1 className="text-xl font-semibold text-primary">Dashboard Overview</h1>
+        <p className="text-sm text-muted">
           System throughput and live agent metrics
         </p>
       </div>

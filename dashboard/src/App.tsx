@@ -28,6 +28,8 @@ export default function App() {
   // Navigation State
   const [currentTab, setCurrentTab] = useState<NavItem>("dashboard");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
+  // Mobile (< 768px): sidebar hidden by default, opened as a slide-out drawer
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
 
   // Active User Profile definition
   const currentUser = {
@@ -75,7 +77,7 @@ export default function App() {
   // 2. Fullscreen Workflow Canvas (Prevents duplicate headers & restores full width)
   if (editingWorkflowId !== null) {
     return (
-      <div className="w-screen h-screen overflow-hidden bg-[#0b0f19]">
+      <div className="w-screen h-screen overflow-hidden bg-background">
         <WorkflowEditor
           workflowId={editingWorkflowId}
           onBack={() => setEditingWorkflowId(null)}
@@ -112,8 +114,8 @@ export default function App() {
         return <AuditView />;
       default:
         return (
-          <div className="p-6 text-slate-400 text-xs">
-            <h1 className="text-xl font-bold text-white capitalize mb-2">
+          <div className="p-6 text-muted text-xs">
+            <h1 className="text-xl font-bold text-primary capitalize mb-2">
               {currentTab}
             </h1>
             <p>This module view is currently under construction.</p>
@@ -124,7 +126,7 @@ export default function App() {
 
   // 4. Main Dashboard Layout
   return (
-    <div className="h-screen w-screen bg-[#0b0f19] text-slate-100 flex flex-col overflow-hidden">
+    <div className="h-screen w-screen bg-background text-primary flex flex-col overflow-hidden">
       {/* Top Header with Profile Dropdown actions */}
       <div className="shrink-0">
         <Header
@@ -132,6 +134,10 @@ export default function App() {
           status="active"
           isEditing={false}
           currentUser={currentUser}
+          onMenuClick={() => {
+            setIsSidebarCollapsed(false);
+            setIsMobileNavOpen(true);
+          }}
           onNavigateToSettings={() => setCurrentTab("settings")}
           onNavigateToIntegrations={() => setCurrentTab("integrations")}
           onLogout={handleLogout}
@@ -140,6 +146,15 @@ export default function App() {
 
       {/* Main Body */}
       <div className="flex flex-1 overflow-hidden relative">
+        {/* Mobile backdrop — tap outside to close the drawer */}
+        {isMobileNavOpen && (
+          <div
+            className="fixed inset-0 z-30 bg-black/50 backdrop-blur-sm md:hidden"
+            onClick={() => setIsMobileNavOpen(false)}
+            aria-hidden="true"
+          />
+        )}
+
         <Sidebar
           currentTab={currentTab}
           onSelectTab={(tab) => {
@@ -148,9 +163,11 @@ export default function App() {
           }}
           collapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
+          mobileOpen={isMobileNavOpen}
+          onCloseMobile={() => setIsMobileNavOpen(false)}
         />
 
-        <main className="flex-1 overflow-y-auto bg-[#0b0f19] h-full">
+        <main className="flex-1 overflow-y-auto bg-background h-full">
           {renderCurrentView()}
         </main>
       </div>

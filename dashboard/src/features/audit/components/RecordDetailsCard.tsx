@@ -29,19 +29,19 @@ export const RecordDetailsCard: React.FC<RecordDetailsCardProps> = ({
     switch (role) {
       case "admin":
         return (
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 font-semibold uppercase">
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-danger/10 text-danger border border-danger/20 font-semibold uppercase">
             Admin
           </span>
         );
       case "auditor":
         return (
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold uppercase">
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-warning/10 text-warning border border-warning/20 font-semibold uppercase">
             Auditor
           </span>
         );
       default:
         return (
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-semibold uppercase">
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-accent-primary/10 text-accent-primary border border-accent-primary/20 font-semibold uppercase">
             Staff
           </span>
         );
@@ -49,28 +49,28 @@ export const RecordDetailsCard: React.FC<RecordDetailsCardProps> = ({
   };
 
   return (
-    <div className="bg-[#0f172a] border border-slate-800 rounded-xl p-5 shadow-sm text-slate-200 space-y-4">
-      <div className="flex items-center gap-2 pb-3 border-b border-slate-800">
-        <FiFileText className="text-cyan-400 w-4 h-4" />
-        <h3 className="text-sm font-semibold text-white">Record</h3>
+    <div className="bg-surface border border-subtle rounded-xl p-5 shadow-sm text-secondary space-y-4">
+      <div className="flex items-center gap-2 pb-3 border-b border-subtle">
+        <FiFileText className="text-accent-primary w-4 h-4" />
+        <h3 className="text-sm font-semibold text-primary">Record</h3>
       </div>
 
       {/* Structured Key-Value Fields */}
       <div className="space-y-2 text-xs font-mono">
         <div className="flex items-center justify-between py-1">
-          <span className="text-slate-400">Event ID</span>
-          <span className="text-slate-200 font-semibold">{record.id}</span>
+          <span className="text-muted">Event ID</span>
+          <span className="text-secondary font-semibold">{record.id}</span>
         </div>
 
         <div className="flex items-center justify-between py-1">
-          <span className="text-slate-400">Timestamp</span>
-          <span className="text-slate-300">{record.timestamp}</span>
+          <span className="text-muted">Timestamp</span>
+          <span className="text-secondary">{record.timestamp}</span>
         </div>
 
         <div className="flex items-center justify-between py-1">
-          <span className="text-slate-400">Actor</span>
+          <span className="text-muted">Actor</span>
           <div className="flex items-center gap-1.5">
-            <span className="text-white font-sans font-medium">
+            <span className="text-primary font-sans font-medium">
               {record.actor}
             </span>
             {getRoleBadge(record.role)}
@@ -78,72 +78,72 @@ export const RecordDetailsCard: React.FC<RecordDetailsCardProps> = ({
         </div>
 
         <div className="flex items-center justify-between py-1">
-          <span className="text-slate-400">Workspace</span>
-          <span className="text-slate-300">{record.workspace}</span>
+          <span className="text-muted">Workspace</span>
+          <span className="text-secondary">{record.workspace}</span>
         </div>
 
         <div className="flex items-center justify-between py-1">
-          <span className="text-slate-400">Action</span>
-          <span className="text-cyan-400 font-semibold">{record.action}</span>
+          <span className="text-muted">Action</span>
+          <span className="text-accent-primary font-semibold">{record.action}</span>
         </div>
 
         <div className="flex items-center justify-between py-1">
-          <span className="text-slate-400">Target</span>
-          <span className="text-slate-300 font-sans">{record.target}</span>
+          <span className="text-muted">Target</span>
+          <span className="text-secondary font-sans">{record.target}</span>
         </div>
 
         <div className="flex items-center justify-between py-1">
-          <span className="text-slate-400">Source</span>
-          <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 text-[11px] font-sans">
+          <span className="text-muted">Source</span>
+          <span className="px-2 py-0.5 rounded bg-surface-hover border border-strong text-secondary text-[11px] font-sans">
             {record.source}
           </span>
         </div>
 
         <div className="flex items-center justify-between py-1">
-          <span className="text-slate-400">Outcome</span>
-          <span className="inline-flex items-center gap-1.5 text-emerald-400 font-sans font-medium text-[11px]">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          <span className="text-muted">Outcome</span>
+          <span className="inline-flex items-center gap-1.5 text-success font-sans font-medium text-[11px]">
+            <span className="w-1.5 h-1.5 rounded-full bg-success" />
             {record.outcome}
           </span>
         </div>
       </div>
 
       {/* Details (Obscured by default, expandable on request) */}
-      <div className="pt-3 border-t border-slate-800">
+      <div className="pt-3 border-t border-subtle">
         <div
           onClick={() => setIsJsonExpanded(!isJsonExpanded)}
-          className="flex items-center justify-between p-2.5 rounded-lg bg-[#0b0f19] border border-slate-800/80 cursor-pointer hover:border-slate-700 transition-colors select-none"
+          className="flex items-center justify-between p-2.5 rounded-lg bg-background border border-subtle/80 cursor-pointer hover:border-strong transition-colors select-none"
         >
           <div className="flex items-center gap-2">
-            <FiCode className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="text-xs font-medium text-slate-300">
+            <FiCode className="w-3.5 h-3.5 text-accent-primary" />
+            <span className="text-xs font-medium text-secondary">
               Details Payload ({Object.keys(record.details).length} keys)
             </span>
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-slate-500 hover:text-slate-300">
+            <span className="text-[10px] text-faint hover:text-secondary">
               {isJsonExpanded ? "Hide raw JSON" : "Show raw JSON"}
             </span>
             {isJsonExpanded ? (
-              <FiChevronUp className="w-3.5 h-3.5 text-slate-400" />
+              <FiChevronUp className="w-3.5 h-3.5 text-muted" />
             ) : (
-              <FiChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              <FiChevronDown className="w-3.5 h-3.5 text-muted" />
             )}
           </div>
         </div>
 
         {/* Collapsible raw JSON pre block */}
         {isJsonExpanded && (
-          <div className="relative mt-2 p-3 bg-[#080c14] border border-slate-800 rounded-lg font-mono text-[11px] text-cyan-300/90 leading-relaxed overflow-x-auto">
+          <div className="relative mt-2 p-3 bg-background border border-subtle rounded-lg font-mono text-[11px] text-accent-primary/90 leading-relaxed overflow-x-auto">
             <button
               type="button"
               onClick={copyJson}
-              className="absolute top-2.5 right-2.5 p-1 rounded bg-slate-800/80 border border-slate-700 text-slate-400 hover:text-white transition-colors"
+              className="absolute top-2.5 right-2.5 p-1 rounded bg-surface-hover/80 border border-strong text-muted hover:text-primary transition-colors"
               title="Copy JSON Payload"
             >
               {copied ? (
-                <FiCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <FiCheck className="w-3.5 h-3.5 text-success" />
               ) : (
                 <FiCopy className="w-3.5 h-3.5" />
               )}

@@ -115,14 +115,14 @@ export const EmployeeView: React.FC = () => {
   });
 
   return (
-    <div className="w-full min-h-screen bg-[#0b0f19] text-slate-100 p-6 flex flex-col gap-6">
+    <div className="w-full min-h-screen bg-background text-primary p-6 flex flex-col gap-6">
       {/* Top Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold text-white tracking-wide">
+          <h1 className="text-xl font-bold text-primary tracking-wide">
             Team Directory & Access Control
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-muted mt-1">
             Manage cluster permissions, employee roles, and workspace
             invitations.
           </p>
@@ -131,15 +131,15 @@ export const EmployeeView: React.FC = () => {
         <div className="flex items-center gap-2.5">
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-800 bg-[#0f172a] hover:bg-slate-800 text-xs font-medium text-slate-300 transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-subtle bg-surface hover:bg-surface-hover text-xs font-medium text-secondary transition-colors"
           >
-            <FiDownloadCloud className="w-3.5 h-3.5 text-slate-400" />
+            <FiDownloadCloud className="w-3.5 h-3.5 text-muted" />
             <span>Export CSV</span>
           </button>
           <button
             type="button"
             onClick={() => setIsInviteModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-semibold text-xs transition-colors shadow-sm shadow-cyan-400/20"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold text-xs transition-colors shadow-sm shadow-accent-primary/40"
           >
             <FiUserPlus className="w-4 h-4 stroke-[2.5]" />
             <span>Invite Member</span>
@@ -151,27 +151,27 @@ export const EmployeeView: React.FC = () => {
       <EmployeeStats employees={employees} />
 
       {/* Search and Filters */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-[#0f172a] border border-slate-800 p-3 rounded-xl">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-surface border border-subtle p-3 rounded-xl">
         <div className="relative w-full sm:w-80">
-          <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-4 h-4" />
+          <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-faint w-4 h-4" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search by name, email, or ID..."
-            className="w-full bg-[#0b0f19] border border-slate-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
+            className="w-full bg-background border border-subtle rounded-lg pl-9 pr-3 py-1.5 text-xs text-primary placeholder:text-faint focus:outline-none focus:border-accent-primary/50"
           />
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto">
-          <div className="flex items-center gap-1.5 text-xs text-slate-400">
-            <FiFilter className="w-3.5 h-3.5 text-cyan-400" />
+          <div className="flex items-center gap-1.5 text-xs text-muted">
+            <FiFilter className="w-3.5 h-3.5 text-accent-primary" />
             <span>Filter Role:</span>
           </div>
           <select
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value)}
-            className="bg-[#0b0f19] border border-slate-800 text-xs text-white rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-cyan-500/50"
+            className="bg-background border border-subtle text-xs text-primary rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-accent-primary/50"
           >
             <option value="all">All Roles</option>
             <option value="admin">Admins</option>

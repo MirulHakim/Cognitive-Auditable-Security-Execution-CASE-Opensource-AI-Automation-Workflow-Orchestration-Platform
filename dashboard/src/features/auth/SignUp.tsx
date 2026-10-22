@@ -83,16 +83,16 @@ export const SignUp: React.FC<SignUpProps> = ({
   };
 
   return (
-    <div className="h-screen w-screen bg-[#0b0f19] flex items-center justify-center p-4 select-none relative overflow-hidden">
+    <div className="h-screen w-screen bg-background flex items-center justify-center p-4 select-none relative overflow-hidden">
       {/* Background Ambience */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-accent-primary/10 rounded-full blur-3xl pointer-events-none" />
 
-      <div className="w-full max-w-md bg-[#0f172a] border border-slate-800 rounded-2xl shadow-2xl p-8 relative z-10">
+      <div className="w-full max-w-md bg-surface border border-subtle rounded-2xl shadow-2xl p-8 relative z-10">
         {/* Back to Login link */}
         <button
           type="button"
           onClick={onNavigateToLogin}
-          className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-cyan-400 transition-colors mb-6"
+          className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-accent-primary transition-colors mb-6"
         >
           <FiArrowLeft className="w-3.5 h-3.5" />
           <span>Back to sign in</span>
@@ -100,15 +100,15 @@ export const SignUp: React.FC<SignUpProps> = ({
 
         {/* Header */}
         <div className="text-center mb-6">
-          <div className="inline-flex h-12 w-12 rounded-xl bg-cyan-500 items-center justify-center font-bold text-slate-950 shadow-lg shadow-cyan-500/20 mb-3 text-lg">
+          <div className="inline-flex h-12 w-12 rounded-xl bg-accent-primary items-center justify-center font-bold text-accent-contrast shadow-lg shadow-accent-primary/40 mb-3 text-lg">
             C
           </div>
-          <h2 className="text-xl font-bold text-white tracking-tight">
+          <h2 className="text-xl font-bold text-primary tracking-tight">
             {isInitialAdminSetup
               ? "Initialize Instance Admin"
               : "Accept Invitation & Register"}
           </h2>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-muted mt-1">
             {isInitialAdminSetup
               ? "Configure the primary root account for this CASE deployment."
               : "Complete your profile to join your workspace team."}
@@ -118,12 +118,12 @@ export const SignUp: React.FC<SignUpProps> = ({
         {/* Setup Badge */}
         <div className="mb-5 flex justify-center">
           {isInitialAdminSetup ? (
-            <div className="inline-flex items-center gap-1.5 text-[11px] font-medium text-cyan-400 bg-cyan-500/10 px-3 py-1 rounded-full border border-cyan-500/20">
+            <div className="inline-flex items-center gap-1.5 text-[11px] font-medium text-accent-primary bg-accent-primary/10 px-3 py-1 rounded-full border border-accent-primary/20">
               <FiShield className="w-3.5 h-3.5" />
               <span>Role: Primary Host Admin</span>
             </div>
           ) : (
-            <div className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
+            <div className="inline-flex items-center gap-1.5 text-[11px] font-medium text-success bg-success/10 px-3 py-1 rounded-full border border-success/20">
               <FiCheckCircle className="w-3.5 h-3.5" />
               <span>Invited as: {assignedRole.toUpperCase()}</span>
             </div>
@@ -132,7 +132,7 @@ export const SignUp: React.FC<SignUpProps> = ({
 
         {/* Error Alert */}
         {error && (
-          <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg flex items-center gap-2 text-rose-400 text-xs">
+          <div className="mb-4 p-3 bg-danger/10 border border-danger/20 rounded-lg flex items-center gap-2 text-danger text-xs">
             <FiAlertCircle className="w-4 h-4 shrink-0" />
             <span>{error}</span>
           </div>
@@ -141,28 +141,28 @@ export const SignUp: React.FC<SignUpProps> = ({
         {/* Registration Form */}
         <form onSubmit={handleSignUpSubmit} className="space-y-3.5">
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">
+            <label className="block text-xs font-medium text-secondary mb-1">
               Full Legal Name
             </label>
             <div className="relative">
-              <FiUser className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <FiUser className="w-4 h-4 text-faint absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 required
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="Amirul Hakimi"
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                className="w-full bg-surface-sunken border border-subtle rounded-lg pl-9 pr-3 py-2 text-xs text-secondary placeholder:text-faint focus:outline-none focus:border-accent-primary transition-colors"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">
+            <label className="block text-xs font-medium text-secondary mb-1">
               Corporate Email Address
             </label>
             <div className="relative">
-              <FiMail className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <FiMail className="w-4 h-4 text-faint absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="email"
                 required
@@ -170,7 +170,7 @@ export const SignUp: React.FC<SignUpProps> = ({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="admin@axiomflow.internal"
-                className={`w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors ${
+                className={`w-full bg-surface-sunken border border-subtle rounded-lg pl-9 pr-3 py-2 text-xs text-secondary placeholder:text-faint focus:outline-none focus:border-accent-primary transition-colors ${
                   inviteToken ? "opacity-60 cursor-not-allowed" : ""
                 }`}
               />
@@ -178,42 +178,42 @@ export const SignUp: React.FC<SignUpProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">
+            <label className="block text-xs font-medium text-secondary mb-1">
               Password
             </label>
             <div className="relative">
-              <FiLock className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <FiLock className="w-4 h-4 text-faint absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••••••"
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                className="w-full bg-surface-sunken border border-subtle rounded-lg pl-9 pr-3 py-2 text-xs text-secondary placeholder:text-faint focus:outline-none focus:border-accent-primary transition-colors"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">
+            <label className="block text-xs font-medium text-secondary mb-1">
               Confirm Password
             </label>
             <div className="relative">
-              <FiLock className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <FiLock className="w-4 h-4 text-faint absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="password"
                 required
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="••••••••••••"
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                className="w-full bg-surface-sunken border border-subtle rounded-lg pl-9 pr-3 py-2 text-xs text-secondary placeholder:text-faint focus:outline-none focus:border-accent-primary transition-colors"
               />
             </div>
           </div>
 
           <button
             type="submit"
-            className="w-full py-2.5 px-4 mt-2 bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-semibold text-xs rounded-lg transition-all shadow-md shadow-cyan-400/20 flex items-center justify-center gap-2 active:scale-[0.99]"
+            className="w-full py-2.5 px-4 mt-2 bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold text-xs rounded-lg transition-all shadow-md shadow-accent-primary/40 flex items-center justify-center gap-2 active:scale-[0.99]"
           >
             <span>
               {isInitialAdminSetup
@@ -227,9 +227,9 @@ export const SignUp: React.FC<SignUpProps> = ({
         {/* Google SSO Alternative */}
         <div className="relative my-5 text-center">
           <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-slate-800" />
+            <div className="w-full border-t border-subtle" />
           </div>
-          <span className="relative bg-[#0f172a] px-2 text-[10px] uppercase font-semibold text-slate-500">
+          <span className="relative bg-surface px-2 text-[10px] uppercase font-semibold text-faint">
             or connect with
           </span>
         </div>
@@ -237,7 +237,7 @@ export const SignUp: React.FC<SignUpProps> = ({
         <button
           type="button"
           onClick={handleGoogleSignUp}
-          className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800/80 border border-slate-800 hover:border-slate-700 text-slate-200 font-medium text-xs rounded-lg transition-colors flex items-center justify-center gap-2.5"
+          className="w-full py-2.5 px-4 bg-surface-sunken hover:bg-surface-hover/80 border border-subtle hover:border-strong text-secondary font-medium text-xs rounded-lg transition-colors flex items-center justify-center gap-2.5"
         >
           <FcGoogle className="w-4 h-4" />
           <span>Sign up with Google</span>

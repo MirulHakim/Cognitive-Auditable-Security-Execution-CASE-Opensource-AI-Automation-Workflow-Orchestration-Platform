@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { FiShield, FiLock, FiInfo } from "react-icons/fi";
+import { FiShield, FiLock } from "react-icons/fi";
 import TelegramIntegrationCard from "./components/TelegramIntegrationCard";
 import GmailIntegrationCard from "./components/GmailIntegrationCard";
 import ConfirmModal from "../../components/ConfirmModal";
@@ -50,19 +50,19 @@ export const IntegrationsView: React.FC = () => {
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto text-slate-100">
+    <div className="p-6 space-y-6 max-w-7xl mx-auto text-primary">
       {/* View Header */}
       <div>
         <div className="flex items-center gap-2">
-          <h1 className="text-xl font-bold text-white tracking-tight">
+          <h1 className="text-xl font-bold text-primary tracking-tight">
             Personal Integrations & Secrets
           </h1>
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-medium bg-accent-primary/10 text-accent-primary border border-accent-primary/20">
             <FiLock className="w-3 h-3" />
             User Vault
           </span>
         </div>
-        <p className="text-xs text-slate-400 mt-1">
+        <p className="text-xs text-muted mt-1">
           Connect your individual communication channels. These credentials are
           tied exclusively to your account and never exposed across team
           workflows.
@@ -70,13 +70,13 @@ export const IntegrationsView: React.FC = () => {
       </div>
 
       {/* Security Privacy Notice */}
-      <div className="bg-[#0f172a] border border-cyan-500/20 rounded-xl p-4 flex items-start gap-3.5 shadow-sm">
-        <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0 mt-0.5">
+      <div className="bg-surface border border-accent-primary/20 rounded-xl p-4 flex items-start gap-3.5 shadow-sm">
+        <div className="w-8 h-8 rounded-lg bg-accent-primary/10 border border-accent-primary/20 text-accent-primary flex items-center justify-center shrink-0 mt-0.5">
           <FiShield className="w-4 h-4" />
         </div>
         <div className="text-xs leading-relaxed">
-          <h4 className="text-white font-semibold">Isolated Employee Scope</h4>
-          <p className="text-slate-400 mt-0.5">
+          <h4 className="text-primary font-semibold">Isolated Employee Scope</h4>
+          <p className="text-muted mt-0.5">
             Unlike global workflow templates which are shared across all team
             members, Telegram bot tokens and mailbox sync handles are strictly
             confidential to your profile. When you test or execute workflows

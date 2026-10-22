@@ -1,43 +1,61 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { FiCpu, FiDatabase } from "react-icons/fi";
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import { FiCpu } from "react-icons/fi";
 import { NODE_REGISTRY } from "../../../constants/NodeRegistry";
-
-export interface CanvasNodeData {
-  id: string;
-  type: string;
-  position: { x: number; y: number };
-  config?: Record<string, any>;
-}
+import type { CanvasNodeData } from "./TriggerNode";
 
 interface AINodeProps {
   node: CanvasNodeData;
   scale: number;
+  onUpdateSize?: (id: string, width: number, height: number) => void;
   onUpdatePosition: (id: string, newPos: { x: number; y: number }) => void;
   onStartConnection: (
     nodeId: string,
-    portType: "input" | "output" | "data-source",
+    portType: string,
     startPos: { x: number; y: number },
     color: string,
   ) => void;
-  onConnectTarget?: (
+  onConnectTarget?: (targetNodeId: string, targetPort: string) => void;
+  onTargetPortMouseDown?: (
+    e: React.MouseEvent,
     targetNodeId: string,
-    targetPort: "input" | "data-source",
+    targetPort: string,
   ) => void;
+  /** Bi-directional port: LIFO-detaches the newest wire if any are attached,
+   *  otherwise starts a fresh wire from this port. Handled by the editor,
+   *  which owns the edge list. */
+  onBiDiPortMouseDown?: (
+    e: React.MouseEvent,
+    nodeId: string,
+    portId: string,
+    color: string,
+  ) => void;
+  /** Converts screen coordinates into canvas/world coordinates. */
+  toCanvasCoords?: (
+    clientX: number,
+    clientY: number,
+  ) => { x: number; y: number };
   onDragStart?: (nodeId: string) => void;
   onDragMove?: (clientX: number, clientY: number) => void;
   onDragEnd?: (nodeId: string, clientX: number, clientY: number) => void;
+  onOpenSettings?: (nodeId: string) => void;
 }
 
 export const AINode: React.FC<AINodeProps> = ({
   node,
   scale,
+  onUpdateSize,
   onUpdatePosition,
   onStartConnection,
   onConnectTarget,
+  onTargetPortMouseDown,
+  onBiDiPortMouseDown,
+  toCanvasCoords,
+  onOpenSettings,
   onDragStart,
   onDragMove,
   onDragEnd,
 }) => {
+  const nodeRef = useRef<HTMLDivElement>(null);
   const [isDraggingNode, setIsDraggingNode] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
@@ -45,7 +63,7 @@ export const AINode: React.FC<AINodeProps> = ({
     return (
       NODE_REGISTRY.find((item) => item.type === node.type) || {
         title: "AI Agent",
-        badge: "MODEL",
+        description: "",
         icon: FiCpu,
       }
     );
@@ -53,9 +71,11 @@ export const AINode: React.FC<AINodeProps> = ({
 
   const IconComponent = definition.icon;
   const title = definition.title;
-  const modelName = node.config?.model || "gpt-4o";
-  const dataSource = node.config?.dataSource || "No Data Source";
+  const description =
+    definition.description ||
+    "AI agent that reasons, summarizes, or takes actions.";
 
+  // Node Dragging Handlers
   const handleMouseDown = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest("button, input, .connection-handle"))
       return;
@@ -69,128 +89,130 @@ export const AINode: React.FC<AINodeProps> = ({
     onDragStart?.(node.id);
   };
 
-  const handleMouseMove = (e: MouseEvent) => {
-    if (!isDraggingNode) return;
-    onUpdatePosition(node.id, {
-      x: e.clientX / scale - dragOffset.x,
-      y: e.clientY / scale - dragOffset.y,
-    });
-    onDragMove?.(e.clientX, e.clientY);
-  };
-
-  const handleMouseUp = (e: MouseEvent) => {
-    if (!isDraggingNode) return;
-    setIsDraggingNode(false);
-    onDragEnd?.(node.id, e.clientX, e.clientY);
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onOpenSettings?.(node.id);
   };
 
   useEffect(() => {
-    if (isDraggingNode) {
-      window.addEventListener("mousemove", handleMouseMove);
-      window.addEventListener("mouseup", handleMouseUp);
-      return () => {
-        window.removeEventListener("mousemove", handleMouseMove);
-        window.removeEventListener("mouseup", handleMouseUp);
-      };
-    }
-  }, [isDraggingNode, dragOffset, scale]);
+    if (!isDraggingNode) return;
 
-  const handleOutputPortDown = (e: React.MouseEvent) => {
+    const handleMouseMove = (e: MouseEvent) => {
+      onUpdatePosition(node.id, {
+        x: e.clientX / scale - dragOffset.x,
+        y: e.clientY / scale - dragOffset.y,
+      });
+      onDragMove?.(e.clientX, e.clientY);
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      setIsDraggingNode(false);
+      onDragEnd?.(node.id, e.clientX, e.clientY);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [
+    isDraggingNode,
+    dragOffset,
+    scale,
+    node.id,
+    onUpdatePosition,
+    onDragMove,
+    onDragEnd,
+  ]);
+
+  // Measure rendered dimensions using ResizeObserver (port fallback coords)
+  useEffect(() => {
+    const el = nodeRef.current;
+    if (!el || !onUpdateSize) return;
+
+    onUpdateSize(node.id, el.offsetWidth, el.offsetHeight);
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        onUpdateSize(node.id, Math.round(width), Math.round(height));
+      }
+    });
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [node.id, onUpdateSize]);
+
+  // Pixel-perfect port reference: read the port dot's live screen rect and
+  // convert it into world coordinates through the editor's transform.
+  const portWorld = (el: HTMLDivElement) => {
+    const rect = el.getBoundingClientRect();
+    return toCanvasCoords
+      ? toCanvasCoords(rect.left + rect.width / 2, rect.top + rect.height / 2)
+      : { x: node.position.x + 120, y: node.position.y + 55 };
+  };
+
+  const handleOutputPortDown = (e: React.MouseEvent<HTMLDivElement>) => {
     e.stopPropagation();
     onStartConnection(
       node.id,
       "output",
-      { x: node.position.x + 208, y: node.position.y + 95 },
-      "#22d3ee",
+      portWorld(e.currentTarget),
+      "var(--accent-primary)",
     );
   };
 
-  const handleDataSourcePortDown = (e: React.MouseEvent) => {
+  const handleToolPortDown = (e: React.MouseEvent<HTMLDivElement>) => {
     e.stopPropagation();
-    onStartConnection(
-      node.id,
-      "data-source",
-      { x: node.position.x + 110, y: node.position.y + 182 },
-      "#34d399",
-    );
+    onBiDiPortMouseDown?.(e, node.id, "tool", "var(--accent-primary)");
   };
 
   return (
     <div
+      ref={nodeRef}
       onMouseDown={handleMouseDown}
+      onDoubleClick={handleDoubleClick}
       style={{
         transform: `translate(${node.position.x}px, ${node.position.y}px)`,
         position: "absolute",
-        width: "220px",
-        height: "190px",
       }}
-      className={`group select-none relative ${
-        isDraggingNode ? "cursor-grabbing" : "cursor-grab"
+      className={`w-[240px] select-none relative rounded-xl border-2 bg-surface shadow-xl transition-colors duration-200 ${
+        isDraggingNode
+          ? "cursor-grabbing border-accent-primary ring-2 ring-accent-primary/40 shadow-accent-primary/20"
+          : "cursor-grab border-accent-primary/40 hover:border-accent-primary hover:shadow-lg"
       }`}
+      title="Double-click to open settings"
     >
-      {/* Bottom Floating Ambient Glow - Only active when DRAGGING */}
-      <div
-        className={`absolute -bottom-2 left-1/2 -translate-x-1/2 w-28 h-7 rounded-full pointer-events-none blur-md transition-opacity duration-150 ${
-          isDraggingNode
-            ? "bg-cyan-400/40 opacity-100 scale-105"
-            : "opacity-0 pointer-events-none"
-        }`}
-      />
+      {/* Cyan left accent stripe */}
+      <div className="absolute left-0 top-0 bottom-0 w-1 bg-accent-primary rounded-l-[10px] pointer-events-none" />
 
-      {/* Hexagon SVG Frame */}
-      <svg
-        className={`absolute inset-0 w-[220px] h-[190px] overflow-visible pointer-events-none z-10 transition-all duration-150 ${
-          isDraggingNode ? "drop-shadow-[0_0_14px_rgba(34,211,238,0.45)]" : ""
-        }`}
-        viewBox="0 0 220 190"
-      >
-        {/* Primary Hexagon: On hover only the border stroke lights up; glow is reserved for drag */}
-        <polygon
-          points="55,8 165,8 208,95 165,182 55,182 12,95"
-          className={`fill-[#0f172a] transition-[stroke,stroke-width] duration-150 ${
-            isDraggingNode
-              ? "stroke-cyan-400 stroke-[2.5]"
-              : "stroke-cyan-500/40 stroke-2 group-hover:stroke-cyan-400 group-hover:stroke-[2.5]"
-          }`}
-        />
-
-        {/* Inner subtle rim */}
-        <polygon
-          points="60,16 160,16 198,95 160,174 60,174 22,95"
-          className="fill-none stroke-cyan-500/10 stroke-1"
-        />
-      </svg>
-
-      {/* Hexagon Inner Details */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 pointer-events-none z-20">
-        <div className="h-8 w-8 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center mb-1 shadow-sm shadow-cyan-500/20 group-hover:border-cyan-400/40 transition-colors">
+      {/* Compact header: icon + title + plain-English subtitle */}
+      <div className="flex items-center gap-2.5 pl-4 pr-3 py-3">
+        <div className="h-9 w-9 rounded-lg bg-accent-primary/10 border border-accent-primary/20 text-accent-primary flex items-center justify-center shrink-0">
           <IconComponent className="w-4 h-4" />
         </div>
-
-        <span className="text-xs font-semibold text-white tracking-wide truncate max-w-[120px]">
-          {title}
-        </span>
-
-        <span className="text-[9px] font-mono text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded border border-cyan-500/20 mt-0.5">
-          {modelName}
-        </span>
-
-        <div className="flex items-center gap-1 mt-1.5 text-[10px] text-slate-400 font-mono">
-          <FiDatabase className="w-2.5 h-2.5 text-cyan-400 shrink-0" />
-          <span className="truncate max-w-[100px]">{dataSource}</span>
+        <div className="flex-1 min-w-0">
+          <div className="text-xs font-semibold text-primary tracking-wide truncate">
+            {title}
+          </div>
+          <div className="text-[10px] text-muted truncate">{description}</div>
         </div>
       </div>
 
-      {/* Left Input Port */}
+      {/* Left Input Port — mouse-up connects, mouse-down detaches newest wire (LIFO) */}
       <div
         data-port-id={`${node.id}-input`}
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          onTargetPortMouseDown?.(e, node.id, "input");
+        }}
         onMouseUp={(e) => {
           e.stopPropagation();
           onConnectTarget?.(node.id, "input");
         }}
-        title="Connect input here"
-        style={{ left: "12px", top: "95px" }}
-        className="connection-handle absolute -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-900 border-2 border-cyan-400 hover:scale-125 transition-transform cursor-pointer z-30 shadow-md shadow-cyan-400/40"
+        title="Input port — drag out to detach the newest wire (LIFO)"
+        className="connection-handle absolute -left-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-surface-sunken border-2 border-accent-primary hover:scale-125 transition-transform cursor-pointer z-30 shadow-md shadow-accent-primary/40"
       />
 
       {/* Right Output Port */}
@@ -198,17 +220,19 @@ export const AINode: React.FC<AINodeProps> = ({
         data-port-id={`${node.id}-output`}
         onMouseDown={handleOutputPortDown}
         title="Output connection"
-        style={{ left: "208px", top: "95px" }}
-        className="connection-handle absolute -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-cyan-400 border-2 border-[#0b0f19] hover:scale-125 hover:bg-cyan-300 transition-transform cursor-crosshair z-30 shadow-[0_0_10px_rgba(34,211,238,0.7)]"
+        className="connection-handle absolute -right-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-accent-primary border-2 border-background hover:scale-125 hover:bg-accent-primary-hover transition-transform cursor-crosshair z-30 shadow-[0_0_10px_color-mix(in_oklab,var(--accent-primary)_70%,transparent)]"
       />
 
-      {/* Bottom Data Source Port */}
+      {/* Bottom Tool Hub Port — bi-directional attachment point for Tool nodes */}
       <div
-        data-port-id={`${node.id}-data-source`}
-        onMouseDown={handleDataSourcePortDown}
-        title="Connect Data Source"
-        style={{ left: "110px", top: "182px" }}
-        className="connection-handle absolute -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-emerald-400 border-2 border-[#0b0f19] hover:scale-125 hover:bg-emerald-300 transition-transform cursor-crosshair z-30 shadow-[0_0_10px_rgba(52,211,153,0.7)]"
+        data-port-id={`${node.id}-tool`}
+        onMouseDown={handleToolPortDown}
+        onMouseUp={(e) => {
+          e.stopPropagation();
+          onConnectTarget?.(node.id, "tool");
+        }}
+        title="Tool port — connect Tools (Documents, HTTP, Files) here; drag out to detach the newest tool wire (LIFO)"
+        className="connection-handle absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-surface-sunken border-2 border-accent-primary hover:scale-125 transition-transform cursor-pointer z-30 shadow-md shadow-accent-primary/50"
       />
     </div>
   );

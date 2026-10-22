@@ -25,17 +25,17 @@ export const WorkflowStatsBar: React.FC<WorkflowStatsBarProps> = ({
         onClick={() => onFilterChange("all")}
         className={`p-3 rounded-xl border flex items-center justify-between text-left transition-colors ${
           activeFilter === "all"
-            ? "bg-slate-900 border-cyan-500/40 shadow-sm shadow-cyan-500/10"
-            : "bg-[#0f172a] border-slate-800 hover:border-slate-700"
+            ? "bg-surface-sunken border-accent-primary/40 shadow-sm shadow-accent-primary/40"
+            : "bg-surface border-subtle hover:border-strong"
         }`}
       >
         <div className="flex items-center gap-2.5">
-          <FiLayers className="w-4 h-4 text-cyan-400" />
-          <span className="text-xs font-medium text-slate-300">
+          <FiLayers className="w-4 h-4 text-accent-primary" />
+          <span className="text-xs font-medium text-secondary">
             Total Workflows
           </span>
         </div>
-        <span className="text-sm font-bold text-white font-mono">
+        <span className="text-sm font-bold text-primary font-mono">
           {totalCount}
         </span>
       </button>
@@ -45,17 +45,17 @@ export const WorkflowStatsBar: React.FC<WorkflowStatsBarProps> = ({
         onClick={() => onFilterChange("active")}
         className={`p-3 rounded-xl border flex items-center justify-between text-left transition-colors ${
           activeFilter === "active"
-            ? "bg-slate-900 border-emerald-500/40 shadow-sm shadow-emerald-500/10"
-            : "bg-[#0f172a] border-slate-800 hover:border-slate-700"
+            ? "bg-surface-sunken border-success/40 shadow-sm shadow-success/10"
+            : "bg-surface border-subtle hover:border-strong"
         }`}
       >
         <div className="flex items-center gap-2.5">
-          <FiCheckCircle className="w-4 h-4 text-emerald-400" />
-          <span className="text-xs font-medium text-slate-300">
+          <FiCheckCircle className="w-4 h-4 text-success" />
+          <span className="text-xs font-medium text-secondary">
             Active Agents
           </span>
         </div>
-        <span className="text-sm font-bold text-emerald-400 font-mono">
+        <span className="text-sm font-bold text-success font-mono">
           {activeCount}
         </span>
       </button>
@@ -65,17 +65,17 @@ export const WorkflowStatsBar: React.FC<WorkflowStatsBarProps> = ({
         onClick={() => onFilterChange("inactive")}
         className={`p-3 rounded-xl border flex items-center justify-between text-left transition-colors ${
           activeFilter === "inactive"
-            ? "bg-slate-900 border-amber-500/40 shadow-sm shadow-amber-500/10"
-            : "bg-[#0f172a] border-slate-800 hover:border-slate-700"
+            ? "bg-surface-sunken border-warning/40 shadow-sm shadow-warning/10"
+            : "bg-surface border-subtle hover:border-strong"
         }`}
       >
         <div className="flex items-center gap-2.5">
-          <FiPauseCircle className="w-4 h-4 text-amber-400" />
-          <span className="text-xs font-medium text-slate-300">
+          <FiPauseCircle className="w-4 h-4 text-warning" />
+          <span className="text-xs font-medium text-secondary">
             Paused / Drafts
           </span>
         </div>
-        <span className="text-sm font-bold text-amber-400 font-mono">
+        <span className="text-sm font-bold text-warning font-mono">
           {inactiveCount}
         </span>
       </button>

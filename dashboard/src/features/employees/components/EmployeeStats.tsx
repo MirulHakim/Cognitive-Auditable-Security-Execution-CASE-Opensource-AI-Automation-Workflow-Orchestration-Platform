@@ -19,36 +19,36 @@ export const EmployeeStats: React.FC<EmployeeStatsProps> = ({ employees }) => {
       value: total,
       subtext: `${activeCount} active`,
       icon: FiUsers,
-      color: "text-cyan-400",
-      bg: "bg-cyan-500/10",
-      border: "border-cyan-500/20",
+      color: "text-accent-primary",
+      bg: "bg-accent-primary/10",
+      border: "border-accent-primary/20",
     },
     {
       label: "Administrators",
       value: adminCount,
       subtext: "Full cluster privileges",
       icon: FiShield,
-      color: "text-rose-400",
-      bg: "bg-rose-500/10",
-      border: "border-rose-500/20",
+      color: "text-danger",
+      bg: "bg-danger/10",
+      border: "border-danger/20",
     },
     {
       label: "Operational Staff",
       value: staffCount,
       subtext: "Workflow execution",
       icon: FiUserCheck,
-      color: "text-emerald-400",
-      bg: "bg-emerald-500/10",
-      border: "border-emerald-500/20",
+      color: "text-success",
+      bg: "bg-success/10",
+      border: "border-success/20",
     },
     {
       label: "Security Auditors",
       value: auditorCount,
       subtext: "Read-only telemetry",
       icon: FiEye,
-      color: "text-amber-400",
-      bg: "bg-amber-500/10",
-      border: "border-amber-500/20",
+      color: "text-warning",
+      bg: "bg-warning/10",
+      border: "border-warning/20",
     },
   ];
 
@@ -59,14 +59,14 @@ export const EmployeeStats: React.FC<EmployeeStatsProps> = ({ employees }) => {
         return (
           <div
             key={stat.label}
-            className="bg-[#0f172a] border border-slate-800 rounded-xl p-4 flex items-center justify-between shadow-sm"
+            className="bg-surface border border-subtle rounded-xl p-4 flex items-center justify-between shadow-sm"
           >
             <div>
-              <p className="text-xs font-medium text-slate-400">{stat.label}</p>
-              <h4 className="text-xl font-bold text-white mt-1">
+              <p className="text-xs font-medium text-muted">{stat.label}</p>
+              <h4 className="text-xl font-bold text-primary mt-1">
                 {stat.value}
               </h4>
-              <p className="text-[11px] text-slate-500 mt-0.5">
+              <p className="text-[11px] text-faint mt-0.5">
                 {stat.subtext}
               </p>
             </div>
