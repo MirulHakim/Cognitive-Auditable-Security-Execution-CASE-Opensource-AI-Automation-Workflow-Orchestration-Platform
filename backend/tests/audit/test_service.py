@@ -9,7 +9,7 @@ from src.audit.canonical import GENESIS_HASH, compute_event_hash
 from src.audit.errors import AuditValidationError
 from src.audit.repository import InMemoryAuditRepository
 from src.audit.service import MAX_DETAILS_BYTES, AuditService
-from src.standardization.audit_port import AuditLogger
+from src.audit.port import AuditLogger
 from tests.audit.conftest import HASH_A, HASH_B, WS, CountingIds, StepClock, event_kwargs
 
 pytestmark = pytest.mark.anyio

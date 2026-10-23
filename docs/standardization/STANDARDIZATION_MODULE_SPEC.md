@@ -96,7 +96,7 @@ src/standardization/
 │   ├── web_form.py       # MVP
 │   ├── rest_api.py       # reserved (future resources)
 │   └── json_file.py      # reserved (future resources)
-├── audit_port.py         # Step 4 ✅  (async, done in Audit Phase 0, §7.1)
+├── audit_port.py         # Step 4 ✅  (async, done in Audit Phase 0; now re-exports src/audit/port.py, §7.1)
 ├── service.py            # Step 4 ✅  (async, done in Audit Phase 0)
 └── render.py             # Step 4 ✅
 tests/standardization/    # Step 5 ✅ (138 tests, 95% coverage)
@@ -196,6 +196,8 @@ All adapters raise `StandardizationError(message, code, source)`. Codes: `STANDA
 This module must not import the Audit module's internals. It defines a small interface and receives the logger by injection.
 
 **Done in Audit Phase 0** (see `AUDIT_MODULE_PLAN.md` §8.1): the protocol became async and gained an optional `session`, so the real `AuditService` can plug in.
+
+**Moved to `src/audit/port.py`** (Audit Phase 1): the interface is now the Audit module's public contract, shared by every module. `audit_port.py` only re-exports it, so older imports keep working; `service.py` imports from `src/audit/port.py`. The code below is unchanged.
 
 ```python
 from typing import Any, Protocol

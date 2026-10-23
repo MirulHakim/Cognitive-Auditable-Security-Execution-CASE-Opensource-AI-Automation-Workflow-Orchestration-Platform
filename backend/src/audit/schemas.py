@@ -23,6 +23,9 @@ HASH_PATTERN = r"^[a-f0-9]{64}$"
 # 3. AUDIT EVENT SCHEMAS (§5.1)
 # ============================================================================
 
+# Enum ni make sure hanya dalam senarai je yang boleh diplih. 
+# Other than the listed values, it will raise validation error. 
+# This is to make sure the data is standardized and consistent across the system.
 class AuditEventTypeEnum(str, Enum):
     """Event type, derived from the action by the catalogue (§7)."""
     USER_ACTION = "USER_ACTION"
@@ -104,11 +107,14 @@ class AuditEvent(BaseModel):
 
 class AuditTimelineEntry(BaseModel):
     """Denormalized Audit Timeline Entry - formatted for UI display"""
+    #event: what happened, who did it, when, and what was affected.
     event_id: UUID
     event_type: AuditEventTypeEnum
+    #who did it, what role they had, and how to contact them.
     actor_id: UUID
     actor_name: str  # from users.full_name
     actor_email: str
+    #action_description will be revised in Phase 5 
     action_description: str
     affected_resource_id: Optional[UUID] = None
     affected_resource_type: Optional[str] = None

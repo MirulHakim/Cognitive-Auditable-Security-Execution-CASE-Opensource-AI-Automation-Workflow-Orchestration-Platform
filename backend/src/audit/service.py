@@ -4,7 +4,7 @@ AuditService: the only way events are recorded (AUDIT_MODULE_PLAN.md §8.1)
 
 Location: src/audit/service.py
 
-`log_event` satisfies standardization.audit_port.AuditLogger, so any module
+`log_event` satisfies audit.port.AuditLogger, so any module
 that takes an AuditLogger can be given an AuditService. It returns None;
 `append_event` does the same work and returns the stored AuditEvent.
 
