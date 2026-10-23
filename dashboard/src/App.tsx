@@ -13,6 +13,12 @@ import SettingsView from "./features/settings/SettingsView";
 import AuditView from "./features/audit/AuditView";
 
 export default function App() {
+  // UI-REGION: Auth gate & prototype session state (single source of truth
+  // for the signed-in user's role and top-level view routing).
+  // TODO[BACKEND]: Bootstrap the session on mount — useEffect →
+  // GET /api/auth/me (httpOnly JWT cookie); on 200 set isAuthenticated +
+  // currentUserRole from the response claims, on 401 keep the Login screen.
+  // Replace this purely local state.
   // Prototyping Auth State:
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [authScreen, setAuthScreen] = useState<"login" | "signup">("login");
@@ -46,6 +52,8 @@ export default function App() {
     setCurrentTab("dashboard");
   };
 
+  // TODO[BACKEND]: Call POST /api/auth/logout to invalidate the JWT server-side
+  // (jti denylist / cookie clear) before resetting local state below.
   // Session Logout Handler
   const handleLogout = () => {
     setIsAuthenticated(false);

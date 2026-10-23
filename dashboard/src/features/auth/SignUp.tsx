@@ -50,6 +50,12 @@ export const SignUp: React.FC<SignUpProps> = ({
     ? "admin"
     : "staff";
 
+  // TODO[BACKEND]: Google Workspace SSO integration point — start the Google
+  // OAuth 2.0 flow here (Google Identity Services popup or redirect), send the
+  // authorization code plus the invite token / initial-admin flag to
+  // POST /api/auth/google on Express, then extract the JWT access token from
+  // the backend response (res.data.token) and store it before calling
+  // onSignUpSuccess with the role claim decoded from that JWT.
   const handleGoogleSignUp = () => {
     if (isAuthing) return;
     setIsAuthing(true);

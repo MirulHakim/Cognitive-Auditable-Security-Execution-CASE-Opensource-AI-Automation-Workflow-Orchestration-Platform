@@ -25,6 +25,12 @@ const CATEGORY_TABS: Array<{ id: CategoryFilter; label: string }> = [
   { id: "integrations", label: "Integrations" },
 ];
 
+// UI-REGION: Node Library modal — searchable, categorized palette of
+// draggable node definitions (All/Triggers/AI/Logic/Tools/Database/
+// Integrations tabs).
+// TODO[BACKEND]: The palette reads the static NODE_REGISTRY constant; for
+// org-specific connectors consider GET /api/nodes to merge server-served
+// node definitions into the list.
 export const NodeCatalog: React.FC<NodeCatalogProps> = ({
   isOpen,
   onClose,

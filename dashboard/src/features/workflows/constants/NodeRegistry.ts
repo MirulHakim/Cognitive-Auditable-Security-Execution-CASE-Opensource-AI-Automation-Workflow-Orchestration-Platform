@@ -89,6 +89,10 @@ export interface ConnectorConfig {
   telegramMessage?: string;
 }
 
+// TODO[BACKEND]: This is the static client-side node catalog (types,
+// categories, defaultConfig seeds). Long-term, merge it with a server-served
+// catalog (GET /api/nodes) so org-specific connectors and versioned
+// definitions stay in PostgreSQL rather than shipping in the JS bundle.
 export const NODE_REGISTRY: NodeDefinition[] = [
   // Triggers (D-capsule nodes)
   {

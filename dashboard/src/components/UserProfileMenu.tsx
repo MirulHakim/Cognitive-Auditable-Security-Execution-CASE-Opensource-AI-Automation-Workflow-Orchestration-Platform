@@ -22,6 +22,9 @@ interface UserProfileMenuProps {
   onLogout: () => void;
 }
 
+// UI-REGION: Profile dropdown menu — user identity, role badge, and
+// settings/integrations/logout actions. Presentational: the `user` prop is
+// supplied by App from the auth session.
 export const UserProfileMenu: React.FC<UserProfileMenuProps> = ({
   user,
   onNavigateToSettings,

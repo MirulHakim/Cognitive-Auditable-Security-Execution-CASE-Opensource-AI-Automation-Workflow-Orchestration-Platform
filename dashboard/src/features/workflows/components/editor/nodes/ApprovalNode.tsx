@@ -35,6 +35,9 @@ interface ApprovalConfig {
   description?: string;
 }
 
+// UI-REGION: Human Approval Node — canvas card with Approved/Rejected
+// outcome rows and the AI summary hint. Presentational: the real
+// approve/reject round-trip will arrive via the execution API.
 export const ApprovalNode: React.FC<ApprovalNodeProps> = ({
   node,
   scale,

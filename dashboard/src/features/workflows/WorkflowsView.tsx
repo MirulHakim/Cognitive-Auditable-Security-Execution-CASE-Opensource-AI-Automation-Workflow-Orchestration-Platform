@@ -20,6 +20,14 @@ export interface ExtendedWorkflowItem extends WorkflowItem {
   category: "support" | "operations" | "engineering" | "growth";
 }
 
+// UI-REGION: My Workflows — stats bar, search/category filters, and the
+// paginated workflow table.
+// TODO[BACKEND]: Replace this hard-coded initialWorkflows array with a
+// paginated fetch from GET /api/workflows?search=&category=&status= in a
+// useEffect, and route the mutations to the API: handleToggleStatus →
+// PATCH /api/workflows/:id/status, handleDuplicate →
+// POST /api/workflows/:id/duplicate, handleConfirmDelete →
+// DELETE /api/workflows/:id, handleExportJson → GET /api/workflows/:id/export.
 const initialWorkflows: ExtendedWorkflowItem[] = [
   {
     id: "wf-1",
@@ -116,6 +124,15 @@ export const WorkflowsView: React.FC<WorkflowsViewProps> = ({
       status: "inactive",
     };
     setWorkflows((prev) => [duplicated, ...prev]);
+  };
+
+  // Rename workflow (prototype-local: view state only).
+  // TODO[BACKEND]: Persist server-side — PATCH /api/workflows/:id with
+  // { name } — and apply optimistically on success.
+  const handleRename = (id: string, newName: string) => {
+    setWorkflows((prev) =>
+      prev.map((wf) => (wf.id === id ? { ...wf, name: newName } : wf)),
+    );
   };
 
   const handleExportJson = (workflow: WorkflowItem) => {
@@ -251,6 +268,7 @@ export const WorkflowsView: React.FC<WorkflowsViewProps> = ({
           onDuplicate={handleDuplicate}
           onExportJson={handleExportJson}
           onDelete={handlePromptDelete} // Routed to confirmation prompt
+          onRename={handleRename}
           onNavigateToWorkflows={handleResetFilters}
           onSelectWorkflow={(workflowId) => onOpenBuilder?.(workflowId)}
         />

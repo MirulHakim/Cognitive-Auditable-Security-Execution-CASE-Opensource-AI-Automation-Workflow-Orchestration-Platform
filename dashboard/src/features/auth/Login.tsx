@@ -41,6 +41,12 @@ export const Login: React.FC<LoginProps> = ({
   // When set to false, only direct login is available; invitees must use their token link.
   const isFirstTimeSetup = true;
 
+  // TODO[BACKEND]: Google Workspace SSO integration point — initiate the Google
+  // OAuth 2.0 authorization-code flow here (Google Identity Services popup or
+  // redirect), POST the returned code to /api/auth/google on Express, then
+  // extract the JWT access token from the backend response body
+  // (e.g. res.data.token) and persist it (httpOnly session cookie) before
+  // calling onLoginSuccess with the role claim decoded from that JWT.
   const handleGoogleSignIn = () => {
     if (isAuthing) return;
     setIsAuthing(true);

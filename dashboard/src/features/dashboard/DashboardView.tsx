@@ -20,6 +20,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigateToWorkflows,
   onNavigateToEmployees,
 }) => {
+  // UI-REGION: Dashboard Overview — KPI metric tiles, active workflows
+  // table, and team roster.
+  // TODO[BACKEND]: Replace this hard-coded workflows array with a fetch from
+  // GET /api/workflows in a useEffect, and replace the literal metric values
+  // rendered below ("1,248", "99.4%", "3") with a GET
+  // /api/dashboard/metrics response.
   const [workflows, setWorkflows] = useState<WorkflowItem[]>([
     {
       id: "wf-1",

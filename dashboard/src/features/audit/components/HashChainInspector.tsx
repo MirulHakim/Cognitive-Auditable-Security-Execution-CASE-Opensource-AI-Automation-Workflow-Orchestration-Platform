@@ -311,6 +311,11 @@ export const HashChainInspector: React.FC<HashChainInspectorProps> = ({
           details, prev_hash)
         </p>
 
+        {/* // TODO[BACKEND]: "Recompute this hash now" must trigger a real
+            SHA-256 computation over the current record's payload
+            (seq, ts, actor, role, action, target, source, outcome, details,
+            prev_hash) — e.g. POST /api/audit/verify/:id — and compare the
+            freshly computed digest against the stored prev_hash to detect tampering, instead of the mocked in-memory match/fail result. */}
         <button
           type="button"
           onClick={handleRecomputeHash}

@@ -13,6 +13,11 @@ interface RecordDetailsCardProps {
   record: AuditRecord;
 }
 
+// UI-REGION: Record details card — key/value fields, role badge, and the
+// collapsible record.details JSON viewer with clipboard copy. Presentational:
+// data arrives from the selected audit record (see the /api/audit TODO in
+// AuditView). The tamper/rehash demo controls live in AuditView and are
+// prototype-only — they must never be wired to production APIs.
 export const RecordDetailsCard: React.FC<RecordDetailsCardProps> = ({
   record,
 }) => {

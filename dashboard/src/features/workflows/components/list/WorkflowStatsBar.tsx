@@ -11,6 +11,9 @@ interface WorkflowStatsBarProps {
   onFilterChange: (filter: StatusFilter) => void;
 }
 
+// UI-REGION: Workflow stats filter tiles — Total / Active / Inactive counts
+// that double as a status filter. Presentational: counts are computed by the
+// parent from the (soon-to-be API-backed) workflow list.
 export const WorkflowStatsBar: React.FC<WorkflowStatsBarProps> = ({
   totalCount,
   activeCount,

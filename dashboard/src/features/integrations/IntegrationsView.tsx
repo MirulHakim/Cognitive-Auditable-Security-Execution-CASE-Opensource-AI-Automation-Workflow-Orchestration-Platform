@@ -32,6 +32,13 @@ export const IntegrationsView: React.FC = () => {
     );
   }, [secrets]);
 
+  // UI-REGION: Personal Integrations & Secrets (User Vault) — handlers for
+  // the Telegram bot token and Gmail account credential inputs below.
+  // TODO[BACKEND]: These raw secret strings must be sent to the Express API
+  // (POST /api/integrations/secrets) and encrypted server-side with
+  // AES-256-GCM (random 12-byte IV + auth tag, per-user data key from the
+  // KMS/envelope) BEFORE the ciphertext is INSERTed into PostgreSQL — replace
+  // the prototype's plaintext localStorage persistence entirely.
   const handleSaveTelegram = (token: string) => {
     setSecrets((prev) => ({ ...prev, telegramBotToken: token }));
   };

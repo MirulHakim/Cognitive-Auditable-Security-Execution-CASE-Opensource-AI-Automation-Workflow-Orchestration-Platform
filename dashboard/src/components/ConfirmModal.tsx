@@ -12,6 +12,8 @@ interface ConfirmModalProps {
   onCancel: () => void;
 }
 
+// UI-REGION: Shared confirmation modal (danger/warning/info variants).
+// Presentational only — callers own the confirm side effects.
 export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   isOpen,
   title,

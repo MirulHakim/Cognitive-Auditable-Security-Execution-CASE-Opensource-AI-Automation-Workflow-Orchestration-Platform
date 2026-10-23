@@ -17,6 +17,8 @@ interface HeaderProps {
   onMenuClick?: () => void;
 }
 
+// UI-REGION: Top header — global search, notification bell, and profile
+// dropdown chrome.
 export const Header: React.FC<HeaderProps> = ({
   workflowName,
   status = "active",
@@ -32,6 +34,9 @@ export const Header: React.FC<HeaderProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // TODO[BACKEND]: Replace this hard-coded notification list with a fetch
+  // from GET /api/notifications (plus polling or SSE for live updates) and
+  // wire onClearAll to DELETE /api/notifications.
   const [notifications, setNotifications] = useState<NotificationItem[]>([
     {
       id: "1",

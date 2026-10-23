@@ -31,6 +31,13 @@ interface EmployeeListProps {
   onNavigateToEmployees?: () => void;
 }
 
+// UI-REGION: Employee roster table — avatar, role badge, status, and the
+// per-row action menu (edit role / reset password / remove).
+// TODO[BACKEND]: This defaultEmployees list is only a fallback used when no
+// `employees` prop is passed (Dashboard embed) — the parent should fetch
+// from GET /api/employees and pass the result down instead of relying on
+// this hard-coded roster; the reset-password action should POST
+// /api/employees/:id/reset-password (SSO-managed accounts will not need it).
 const defaultEmployees: Employee[] = [
   {
     id: "EMP-001",

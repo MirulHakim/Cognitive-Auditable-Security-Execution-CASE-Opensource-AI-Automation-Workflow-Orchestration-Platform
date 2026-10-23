@@ -5,6 +5,11 @@ import RecordDetailsCard from "./components/RecordDetailsCard";
 import { AuditTrailList } from "./components/AuditTrailList";
 import { type AuditRecord } from "./types/audit.types";
 
+// UI-REGION: Audit Detail View — single inspected event record.
+// TODO[BACKEND]: Replace this hard-coded mockEvent38 with a data fetch from
+// GET /api/audit/events/:id — load it in a useEffect keyed on
+// selectedEventId and seed the `record` state below from the JSON response
+// (sequence, actor, prev_hash, hash, details) instead of this literal.
 // The mock event for the detailed view
 const mockEvent38: AuditRecord = {
   id: "EVT-00038",

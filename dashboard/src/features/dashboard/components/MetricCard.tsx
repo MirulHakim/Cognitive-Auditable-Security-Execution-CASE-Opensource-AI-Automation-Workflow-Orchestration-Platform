@@ -8,6 +8,8 @@ interface MetricCardProps {
   icon: IconType;
 }
 
+// UI-REGION: KPI metric tile — label, value, delta, and icon.
+// Presentational only; values arrive from the dashboard metrics API.
 export const MetricCard: React.FC<MetricCardProps> = ({
   label,
   value,

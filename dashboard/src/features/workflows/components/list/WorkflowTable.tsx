@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import {
   FiMoreVertical,
+  FiEdit2,
   FiCopy,
   FiDownload,
   FiTrash2,
@@ -11,6 +12,7 @@ import {
   FiChevronRight,
 } from "react-icons/fi";
 import ActionMenu from "../../../../components/ActionMenu";
+import RenameModal from "../../../../components/RenameModal";
 
 export interface WorkflowItem {
   id: string;
@@ -28,6 +30,8 @@ interface WorkflowTableProps {
   onDuplicate: (workflow: WorkflowItem) => void;
   onExportJson: (workflow: WorkflowItem) => void;
   onDelete: (id: string) => void;
+  /** Rename handler — when provided, a Rename item appears in the three-dots menu. */
+  onRename?: (workflowId: string, newName: string) => void;
   onSelectWorkflow?: (workflowId: string) => void;
   onNavigateToWorkflows: () => void;
 }
@@ -36,18 +40,25 @@ type SortField = "recent" | "name" | "status";
 
 const ITEMS_PER_PAGE = 5;
 
+// UI-REGION: Workflow table — sortable, paginated rows with inline status
+// toggles and the per-row action menu. Presentational: every mutation is
+// delegated to the parent's callbacks (which should call the API).
 export const WorkflowTable: React.FC<WorkflowTableProps> = ({
   workflows,
   onToggleStatus,
   onDuplicate,
   onExportJson,
   onDelete,
+  onRename,
   onNavigateToWorkflows,
   onSelectWorkflow,
 }) => {
   const [sortField, setSortField] = useState<SortField>("recent");
   const [sortAsc, setSortAsc] = useState<boolean>(false);
   const [currentPage, setCurrentPage] = useState<number>(1);
+
+  // Target of the three-dots → Rename dialog.
+  const [renameTarget, setRenameTarget] = useState<WorkflowItem | null>(null);
 
   const [activeMenu, setActiveMenu] = useState<{
     item: WorkflowItem;
@@ -303,6 +314,18 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
           position={activeMenu.position}
           onClose={() => setActiveMenu(null)}
           options={[
+            ...(onRename
+              ? [
+                  {
+                    label: "Rename",
+                    icon: FiEdit2,
+                    onClick: () => {
+                      setRenameTarget(activeMenu.item);
+                      setActiveMenu(null);
+                    },
+                  },
+                ]
+              : []),
             {
               label: "Duplicate",
               icon: FiCopy,
@@ -320,6 +343,20 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
               onClick: () => onDelete(activeMenu.item.id),
             },
           ]}
+        />
+      )}
+
+      {/* Rename Dialog (three-dots menu → Rename) — mounted per-open so the
+          draft always seeds from the selected workflow's current name. */}
+      {renameTarget && (
+        <RenameModal
+          isOpen
+          initialValue={renameTarget.name}
+          onSubmit={(newName) => {
+            onRename?.(renameTarget.id, newName);
+            setRenameTarget(null);
+          }}
+          onCancel={() => setRenameTarget(null)}
         />
       )}
     </div>
