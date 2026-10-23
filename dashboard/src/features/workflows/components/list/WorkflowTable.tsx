@@ -151,20 +151,22 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
                     className="hover:bg-surface-sunken/40 transition-colors group"
                   >
                     <td className="py-3 px-4">
-                      {/* Individual Workflow Item: Opens specific workflow via onSelectWorkflow */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (onSelectWorkflow) {
-                            onSelectWorkflow(item.id);
-                          } else {
-                            console.warn("onSelectWorkflow prop not provided to WorkflowTable");
-                          }
-                        }}
-                        className="font-medium text-secondary hover:text-accent-primary hover:underline transition-colors text-left block"
-                      >
-                        {item.name}
-                      </button>
+                      {/* With onSelectWorkflow (Workflows page) the name opens
+                          the builder; without it (Dashboard) it renders as
+                          plain static text — no link hover affordances. */}
+                      {onSelectWorkflow ? (
+                        <button
+                          type="button"
+                          onClick={() => onSelectWorkflow(item.id)}
+                          className="font-medium text-secondary hover:text-accent-primary hover:underline transition-colors text-left block"
+                        >
+                          {item.name}
+                        </button>
+                      ) : (
+                        <span className="font-medium text-secondary text-left block select-none">
+                          {item.name}
+                        </span>
+                      )}
                       <div className="text-[11px] text-muted truncate max-w-xs">
                         {item.description}
                       </div>

@@ -27,9 +27,10 @@ export interface CanvasEdge {
   id: string;
   fromNodeId: string;
   toNodeId: string;
-  /** Port id on the source node: "output" | "data-source" | "output-<index>" (branch). */
+  /** Port id on the source node: "output" | "data-source" | "output-<index>" (branch)
+   *  | "data" | "gen" (AI-agent bottom edge). */
   fromPort: string;
-  /** Port id on the target node: "input" | "data-source". */
+  /** Port id on the target node: "input" | "data-source" | "tool" | "data" | "gen". */
   toPort: string;
   color: string;
   /** Monotonic creation stamp — orders many-to-one wires for LIFO detachment. */
@@ -217,7 +218,7 @@ export const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
     });
   };
 
-  // Bi-directional port (Tool top-center ↔ AI-agent bottom-center):
+  // Bi-directional port (Tool top-center ↔ AI-agent bottom `data`/`gen`):
   // - No wires attached → start a fresh wire from this port.
   // - Wires attached → LIFO-detach the newest one (either direction).
   const handleBiDiPortMouseDown = (
@@ -566,7 +567,19 @@ export const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
     if (n.type.startsWith("trigger-"))
       return { x: n.position.x + measuredWidth, y: n.position.y + 32 };
     if (n.type.startsWith("agent-")) {
-      // Compact card: input/output at vertical center, tool hub bottom-center.
+      // Compact card: input/output at vertical center; bottom edge hosts two
+      // bi-directional ports — `data` at 30% (emerald) and `gen` at 70% (sky).
+      if (portId === "data")
+        return {
+          x: n.position.x + measuredWidth * 0.3,
+          y: n.position.y + measuredHeight,
+        };
+      if (portId === "gen")
+        return {
+          x: n.position.x + measuredWidth * 0.7,
+          y: n.position.y + measuredHeight,
+        };
+      // Legacy center fallback (pre-paint only; the rendered port no longer exists).
       if (portId === "tool")
         return {
           x: n.position.x + measuredWidth / 2,

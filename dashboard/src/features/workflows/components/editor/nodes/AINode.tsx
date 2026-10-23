@@ -163,10 +163,16 @@ export const AINode: React.FC<AINodeProps> = ({
     );
   };
 
-  const handleToolPortDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    onBiDiPortMouseDown?.(e, node.id, "tool", "var(--accent-primary)");
-  };
+  // Bottom edge split into two bi-directional ports. Each carries its own
+  // family color so wires inherit the right palette on creation:
+  //  - `data` (bottom-left,  30%): emerald — pairs with Data/KB nodes.
+  //  - `gen`  (bottom-right, 70%): sky    — pairs with Generator nodes.
+  const handleBiDiPortDown =
+    (portId: string, color: string) =>
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      e.stopPropagation();
+      onBiDiPortMouseDown?.(e, node.id, portId, color);
+    };
 
   return (
     <div
@@ -184,9 +190,6 @@ export const AINode: React.FC<AINodeProps> = ({
       }`}
       title="Double-click to open settings"
     >
-      {/* Cyan left accent stripe */}
-      <div className="absolute left-0 top-0 bottom-0 w-1 bg-accent-primary rounded-l-[10px] pointer-events-none" />
-
       {/* Compact header: icon + title + plain-English subtitle */}
       <div className="flex items-center gap-2.5 pl-4 pr-3 py-3">
         <div className="h-9 w-9 rounded-lg bg-accent-primary/10 border border-accent-primary/20 text-accent-primary flex items-center justify-center shrink-0">
@@ -223,17 +226,42 @@ export const AINode: React.FC<AINodeProps> = ({
         className="connection-handle absolute -right-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-accent-primary border-2 border-background hover:scale-125 hover:bg-accent-primary-hover transition-transform cursor-crosshair z-30 shadow-[0_0_10px_color-mix(in_oklab,var(--accent-primary)_70%,transparent)]"
       />
 
-      {/* Bottom Tool Hub Port — bi-directional attachment point for Tool nodes */}
+      {/* Bottom-Left Data & Context Port — emerald, pairs with Knowledge Base
+          / Document Reader nodes. Bi-directional: mouse-up connects, mouse-down
+          LIFO-detaches the newest wire. */}
       <div
-        data-port-id={`${node.id}-tool`}
-        onMouseDown={handleToolPortDown}
+        data-port-id={`${node.id}-data`}
+        onMouseDown={handleBiDiPortDown("data", "var(--success)")}
         onMouseUp={(e) => {
           e.stopPropagation();
-          onConnectTarget?.(node.id, "tool");
+          onConnectTarget?.(node.id, "data");
         }}
-        title="Tool port — connect Tools (Documents, HTTP, Files) here; drag out to detach the newest tool wire (LIFO)"
-        className="connection-handle absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-surface-sunken border-2 border-accent-primary hover:scale-125 transition-transform cursor-pointer z-30 shadow-md shadow-accent-primary/50"
+        title="Data & context port (left) — connect Knowledge Base / Document Reader nodes here; drag out to detach the newest data wire (LIFO)"
+        className="connection-handle absolute -bottom-2 left-[30%] -translate-x-1/2 w-4 h-4 rounded-full bg-surface-sunken border-2 border-success hover:scale-125 transition-transform cursor-pointer z-30 shadow-md shadow-success/50"
       />
+
+      {/* Tiny label for the bottom-left port */}
+      <span className="pointer-events-none select-none absolute -bottom-6 left-[30%] -translate-x-1/2 text-[9px] font-mono leading-none text-success/70 whitespace-nowrap">
+        Database
+      </span>
+
+      {/* Bottom-Right Generation & Tools Port — sky, pairs with output
+          generators like the Document Generator. Bi-directional as well. */}
+      <div
+        data-port-id={`${node.id}-gen`}
+        onMouseDown={handleBiDiPortDown("gen", "var(--info)")}
+        onMouseUp={(e) => {
+          e.stopPropagation();
+          onConnectTarget?.(node.id, "gen");
+        }}
+        title="Generation & tools port (right) — connect Document Generator / output tools here; drag out to detach the newest tool wire (LIFO)"
+        className="connection-handle absolute -bottom-2 left-[70%] -translate-x-1/2 w-4 h-4 rounded-full bg-surface-sunken border-2 border-info hover:scale-125 transition-transform cursor-pointer z-30 shadow-md shadow-info/50"
+      />
+
+      {/* Tiny label for the bottom-right port */}
+      <span className="pointer-events-none select-none absolute -bottom-6 left-[70%] -translate-x-1/2 text-[9px] font-mono leading-none text-info/70 whitespace-nowrap">
+        Tool
+      </span>
     </div>
   );
 };

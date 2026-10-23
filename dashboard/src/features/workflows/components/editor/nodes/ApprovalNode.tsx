@@ -170,9 +170,6 @@ export const ApprovalNode: React.FC<ApprovalNodeProps> = ({
       }`}
       title="Double-click to open settings"
     >
-      {/* Orange left accent stripe */}
-      <div className="absolute left-0 top-0 bottom-0 w-1 bg-warning rounded-l-[10px] pointer-events-none" />
-
       {/* Compact header: icon + title + plain-English subtitle */}
       <div className="flex items-center gap-2.5 pl-4 pr-3 pt-2.5 pb-2">
         <div className="h-9 w-9 rounded-lg bg-warning/10 border border-warning/20 text-warning flex items-center justify-center shrink-0">

@@ -172,9 +172,6 @@ export const DocumentNode: React.FC<DocumentNodeProps> = ({
       }`}
       title="Double-click to open settings"
     >
-      {/* Blue left accent stripe */}
-      <div className="absolute left-0 top-0 bottom-0 w-1 bg-info rounded-l-[10px] pointer-events-none" />
-
       {/* Header */}
       <div className="flex items-center gap-2.5 pl-4 pr-3 py-3 border-b border-subtle">
         <div className="h-9 w-9 rounded-lg bg-info/10 border border-info/20 text-info flex items-center justify-center shrink-0">
@@ -212,8 +209,7 @@ export const DocumentNode: React.FC<DocumentNodeProps> = ({
         onMouseUp={(e) => {
           e.stopPropagation();
           onConnectTarget?.(node.id, "tool");
-        }}
-        title="Tool port — pairs with an AI agent's tool port; drag out to detach the newest wire (LIFO)"
+        }}          title="Tool port — pairs with an AI agent's generation (right) or data (left) port; drag out to detach the newest wire (LIFO)"
         className="connection-handle absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-surface-sunken border-2 border-info hover:scale-125 transition-transform cursor-pointer z-30 shadow-md shadow-info/50"
       />
     </div>
