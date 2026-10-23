@@ -23,6 +23,10 @@ const CATEGORIES: CategoryFilter[] = [
   "growth",
 ];
 
+// UI-REGION: Search + category filter chips for the workflow list.
+// TODO[BACKEND]: Filtering is client-side today — once the list is served by
+// GET /api/workflows, pass searchQuery/selectedCategory as query params
+// (debounced) instead of filtering an in-memory array.
 export const WorkflowSearchBar: React.FC<WorkflowSearchBarProps> = ({
   searchQuery,
   onSearchChange,

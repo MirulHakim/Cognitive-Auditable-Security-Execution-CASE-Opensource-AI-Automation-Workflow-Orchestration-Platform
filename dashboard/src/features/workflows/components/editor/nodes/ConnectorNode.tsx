@@ -105,6 +105,9 @@ const SERVICE_SUBTITLE: Record<ConnectorService, string> = {
   docs: "Reads files from a folder",
 };
 
+// UI-REGION: Connector Node — canvas card for Gmail/Telegram/HTTP/Document
+// Reader services with the branded SERVICE_META styling and top-center tool
+// port. Presentational: workflow state is owned by WorkflowEditor.
 export const ConnectorNode: React.FC<ConnectorNodeProps> = ({
   node,
   scale,

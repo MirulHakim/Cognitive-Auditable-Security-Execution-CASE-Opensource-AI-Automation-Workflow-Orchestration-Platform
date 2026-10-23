@@ -14,6 +14,8 @@ interface GmailIntegrationCardProps {
   onDisconnect: () => void;
 }
 
+// UI-REGION: Gmail integration card — link/unlink states for the user's
+// personal mailbox sync handle.
 export const GmailIntegrationCard: React.FC<GmailIntegrationCardProps> = ({
   linkedEmail,
   onSaveCredentials,
@@ -25,6 +27,11 @@ export const GmailIntegrationCard: React.FC<GmailIntegrationCardProps> = ({
 
   const isConnected = Boolean(linkedEmail);
 
+  // TODO[BACKEND]: The1.5s sync result below is mocked — replace with
+  // GET /api/integrations/gmail/status so the backend verifies IMAP/Gmail
+  // API access with the stored credential and reports the real listener
+  // state; linking should ultimately use Google OAuth with the gmail.readonly
+  // scope instead of a typed handle.
   const handleTestInboxSync = () => {
     setIsCheckingSync(true);
     setSyncStatus(null);

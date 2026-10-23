@@ -63,6 +63,11 @@ export const AIGeneratorChatModal: React.FC<AIGeneratorChatModalProps> = ({
 
   if (!isOpen) return null;
 
+  // TODO[BACKEND]: Send the user's prompt to the LangChain + LLaMA 3 intent
+  // classifier (POST /api/workflows/generate) and render the returned JSON
+  // workflow schema as the assistant reply — replace the fixed 2s mock timer
+  // below, then pass the generated schema to onOpenBuilder so the canvas
+  // hydrates from real nodes/edges instead of 'mock-ai-generated-id'.
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     const text = draft.trim();

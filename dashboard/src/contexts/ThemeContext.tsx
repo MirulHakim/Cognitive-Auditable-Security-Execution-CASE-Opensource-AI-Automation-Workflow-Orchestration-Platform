@@ -17,6 +17,11 @@ export type ThemePreference = "light" | "dark" | "system";
  */
 export type ResolvedTheme = "light" | "dark";
 
+// UI-REGION: Theme provider — light/dark/system preference applied via
+// <html data-theme="...">, persisted to localStorage per device.
+// TODO[BACKEND]: Persist the preference server-side (PUT
+// /api/users/me/preferences with { theme }) so it follows the account across
+// devices; keep localStorage as the offline fallback.
 const STORAGE_KEY = "case_ui_theme";
 
 interface ThemeContextValue {

@@ -14,6 +14,8 @@ interface TelegramIntegrationCardProps {
   onDisconnect: () => void;
 }
 
+// UI-REGION: Telegram integration card — connect/test/disconnect states for
+// the user's personal bot token.
 export const TelegramIntegrationCard: React.FC<
   TelegramIntegrationCardProps
 > = ({ botToken, onSaveToken, onDisconnect }) => {
@@ -23,6 +25,10 @@ export const TelegramIntegrationCard: React.FC<
 
   const isConnected = Boolean(botToken);
 
+  // TODO[BACKEND]: The1.2s handshake below is mocked — dispatch
+  // POST /api/integrations/telegram/test so the backend calls the Bot API
+  // `getMe` with the STORED (decrypted server-side) token and returns the
+  // real bot username/status.
   const handleTestConnection = () => {
     setIsTesting(true);
     setTestResult(null);

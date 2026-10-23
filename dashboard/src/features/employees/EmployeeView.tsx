@@ -11,6 +11,11 @@ import InviteEmployeeModal from "./components/InviteEmployeeModal";
 import EditRoleModal from "./components/EditRoleModal";
 import ConfirmModal from "../../components/ConfirmModal";
 
+// UI-REGION: Employees — roster table, stats, invite modal, and role editor.
+// TODO[BACKEND]: Replace this hard-coded initialEmployees array with a
+// fetch from GET /api/employees in a useEffect; route invite →
+// POST /api/employees/invite (emits an SSO invite link), role edits →
+// PATCH /api/employees/:id/role, and removal → DELETE /api/employees/:id.
 const initialEmployees: Employee[] = [
   {
     id: "EMP-001",

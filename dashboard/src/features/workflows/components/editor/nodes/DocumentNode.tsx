@@ -44,6 +44,9 @@ interface DocumentConfig {
   title?: string;
 }
 
+// UI-REGION: Document Generator Node — canvas card showing the template
+// format (PDF/DOCX) and generation status. Presentational: workflow state is
+// owned by WorkflowEditor.
 export const DocumentNode: React.FC<DocumentNodeProps> = ({
   node,
   scale,

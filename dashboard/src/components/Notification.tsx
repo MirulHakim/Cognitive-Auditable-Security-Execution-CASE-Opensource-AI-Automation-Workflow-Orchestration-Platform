@@ -16,6 +16,8 @@ interface NotificationDropdownProps {
   onClearAll: () => void;
 }
 
+// UI-REGION: Notification dropdown — read/unread list rendered from the
+// items passed in by Header. Presentational only.
 export const Notification: React.FC<NotificationDropdownProps> = ({
   notifications,
   onClose,

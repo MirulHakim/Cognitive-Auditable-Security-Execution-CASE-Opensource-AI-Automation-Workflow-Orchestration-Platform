@@ -40,6 +40,9 @@ interface AINodeProps {
   onOpenSettings?: (nodeId: string) => void;
 }
 
+// UI-REGION: AI Agent Node — canvas card for agent-* types with the dual
+// bottom ports (Database/data @30% + Tool/gen @70%) and their mono labels.
+// Presentational: workflow state is owned by WorkflowEditor.
 export const AINode: React.FC<AINodeProps> = ({
   node,
   scale,

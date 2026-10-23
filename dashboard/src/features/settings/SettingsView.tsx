@@ -81,6 +81,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     { value: "system", label: "System", icon: FiMonitor },
   ];
 
+  // TODO[BACKEND]: Save profile via PUT /api/users/me with { name,
+  // contactNumber } (email stays SSO-managed/read-only); the avatar upload
+  // overlay should POST the picked file as multipart/form-data to
+  // /api/users/me/avatar and store the returned image URL.
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
     setProfileSaved(true);
@@ -102,6 +106,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     e.target.value = "";
   };
 
+  // TODO[BACKEND]: POST /api/users/me/password with { currentPassword,
+  // newPassword } — but verify this card should survive the Google-SSO-only
+  // auth model (credentials are SSO-managed), in which case remove it.
   const handleUpdatePassword = (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentPassword) {
@@ -124,6 +131,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setTimeout(() => setPasswordStatus(null), 3000);
   };
 
+  // TODO[BACKEND]: Replace the simulated1.4s timer below with a real HTTP
+  // ping dispatched from the browser (or proxied via Express) to
+  // GET {llmHost}:{llmPort}/v1/models with a short AbortController timeout,
+  // then render the returned latency/model list in the success banner.
   const handleTestLlmConnection = () => {
     const host = llmHost.trim();
     const port = llmPort.trim();
@@ -173,7 +184,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {/* Left Column: Account, preferences & AI engine */}
         <div className="md:col-span-2 xl:col-span-2 space-y-6">
-          {/* Profile Card */}
+          {/* // UI-REGION: Profile Details — display name, contact number,
+              read-only SSO email, and the avatar upload overlay. */}
           <div className="bg-surface border border-subtle rounded-xl p-5 shadow-sm">
             <div className="flex items-center gap-2.5 pb-4 border-b border-subtle">
               <div className="w-8 h-8 rounded-lg bg-accent-primary/10 border border-accent-primary/20 text-accent-primary flex items-center justify-center">
@@ -308,7 +320,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </form>
           </div>
 
-          {/* Canvas & Notification Preferences */}
+          {/* // UI-REGION: Editor Preferences — canvas auto-save, snap audio,
+              and alert digest toggles (device-local; later user preferences). */}
           <div className="bg-surface border border-subtle rounded-xl p-5 shadow-sm">
             <div className="flex items-center gap-2.5 pb-4 border-b border-subtle">
               <div className="w-8 h-8 rounded-lg bg-accent-primary/10 border border-accent-primary/20 text-accent-primary flex items-center justify-center">
@@ -384,6 +397,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
           {/* Local LLM Infrastructure — visible to admins only */}
           {currentUser.role === "admin" && (
+            // UI-REGION: Local LLM Infrastructure (On-Premise AI Engine) —
+            // admin-only card holding the local LLaMA 3 connection settings.
             <div className="bg-surface border border-subtle rounded-xl p-5 shadow-sm">
               <div className="flex items-center gap-2.5 pb-4 border-b border-subtle">
                 <div className="w-8 h-8 rounded-lg bg-accent-primary/10 border border-accent-primary/20 text-accent-primary flex items-center justify-center">
@@ -456,6 +471,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </div>
 
                   <div className="flex items-end">
+                    {/* // TODO[BACKEND]: "Test Server Connection" must dispatch
+                        an actual HTTP ping to the configured local LLaMA 3
+                        server — GET http://{llmHost}:{llmPort}/v1/models —
+                        and report round-trip latency instead of the mocked
+                        success banner. */}
                     <button
                       type="button"
                       onClick={handleTestLlmConnection}
@@ -498,7 +518,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         {/* Right Column: Password, session & appearance */}
         <div className="md:col-span-2 xl:col-span-1 space-y-6">
-          {/* Change Password Card */}
+          {/* // UI-REGION: Update Password card (prototype credential flow). */}
           <div className="bg-surface border border-subtle rounded-xl p-5 shadow-sm">
             <div className="flex items-center gap-2.5 pb-3 border-b border-subtle">
               <div className="w-8 h-8 rounded-lg bg-warning/10 border border-warning/20 text-warning flex items-center justify-center">
@@ -581,7 +601,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </form>
           </div>
 
-          {/* Session / Danger Zone */}
+          {/* // UI-REGION: Active Session — logout danger zone. */}
           <div className="bg-surface border border-danger/20 rounded-xl p-5 shadow-sm">
             <div className="flex items-center gap-2.5 pb-3 border-b border-subtle">
               <div className="w-8 h-8 rounded-lg bg-danger/10 border border-danger/20 text-danger flex items-center justify-center">
@@ -614,7 +634,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           </div>
 
-          {/* Appearance Preferences */}
+          {/* // UI-REGION: Appearance — light/dark/system theme switcher. */}
           <div className="bg-surface border border-subtle rounded-xl p-5 shadow-sm">
             <div className="flex items-center gap-2.5 pb-4 border-b border-subtle">
               <div className="w-8 h-8 rounded-lg bg-accent-primary/10 border border-accent-primary/20 text-accent-primary flex items-center justify-center">

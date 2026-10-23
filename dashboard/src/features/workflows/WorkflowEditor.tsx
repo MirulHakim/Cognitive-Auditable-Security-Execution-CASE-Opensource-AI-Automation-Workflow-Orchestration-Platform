@@ -8,6 +8,7 @@ import {
   FiZoomOut,
   FiMaximize2,
   FiMinimize2,
+  FiEdit2,
   FiZap,
   FiTrash2,
 } from "react-icons/fi";
@@ -54,6 +55,27 @@ export const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
   const [nodes, setNodes] = useState<CanvasNodeData[]>([]);
   const [edges, setEdges] = useState<CanvasEdge[]>([]);
   const [settingsNodeId, setSettingsNodeId] = useState<string | null>(null);
+
+  // Editable workflow title (top-left of the subheader). Click the title to
+  // rename inline — Enter/blur commits, Escape reverts.
+  // TODO[BACKEND]: Hydrate this name from GET /api/workflows/:id when the
+  // canvas opens, and persist renames via PATCH /api/workflows/:id { name }.
+  const [workflowName, setWorkflowName] = useState<string>(
+    workflowId ? `Workflow Canvas (${workflowId})` : "Untitled Pipeline",
+  );
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState<string>(workflowName);
+
+  const handleCommitRename = () => {
+    const trimmed = renameDraft.trim();
+    if (trimmed && trimmed !== workflowName) {
+      setWorkflowName(trimmed);
+      // TODO[BACKEND]: Persist the new title — PATCH
+      // /api/workflows/:workflowId { name: trimmed }.
+    }
+    setRenameDraft(trimmed || workflowName);
+    setIsRenaming(false);
+  };
 
   // Monotonic creation stamps for wires: Date.now() can collide within a
   // single millisecond, so force strictly increasing values to keep
@@ -656,11 +678,41 @@ export const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
           <div className="h-4 w-px bg-surface-hover" />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-primary truncate">
-                {workflowId
-                  ? `Workflow Canvas (${workflowId})`
-                  : "Untitled Pipeline"}
-              </span>
+              {/* Inline rename: click the title to edit, Enter/blur commits,
+                  Escape reverts. */}
+              {isRenaming ? (
+                <input
+                  type="text"
+                  autoFocus
+                  aria-label="Workflow name"
+                  value={renameDraft}
+                  onChange={(e) => setRenameDraft(e.target.value)}
+                  onBlur={handleCommitRename}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleCommitRename();
+                    if (e.key === "Escape") {
+                      setRenameDraft(workflowName);
+                      setIsRenaming(false);
+                    }
+                  }}
+                  className="text-xs font-semibold text-primary bg-surface-hover border border-accent-primary/50 rounded px-1.5 py-0.5 focus:outline-none w-[200px] max-w-[45vw]"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRenameDraft(workflowName);
+                    setIsRenaming(true);
+                  }}
+                  title="Click to rename this workflow"
+                  className="group flex items-center gap-1.5 min-w-0 rounded border border-transparent px-1.5 py-0.5 -ml-1.5 hover:border-subtle hover:bg-surface-hover/60 transition-colors"
+                >
+                  <span className="text-xs font-semibold text-primary truncate group-hover:text-accent-primary transition-colors">
+                    {workflowName}
+                  </span>
+                  <FiEdit2 className="w-3 h-3 text-faint group-hover:text-accent-primary shrink-0" />
+                </button>
+              )}
               <span className="hidden sm:block px-1.5 py-0.5 rounded text-[10px] font-mono bg-accent-primary/10 text-accent-primary border border-accent-primary/20">
                 Draft
               </span>
@@ -697,6 +749,9 @@ export const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
         </div>
       </div>
 
+      {/* // UI-REGION: Canvas — custom node drawing surface (pan/zoom
+          transform layer, SVG wire layer, placed nodes, trash zone, zoom
+          controls). */}
       {/* Canvas */}
       <div
         ref={canvasRef}
@@ -1031,12 +1086,14 @@ export const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
         </div>
       </div>
 
+      {/* // UI-REGION: Sidebar — Node Library (draggable node palette modal) */}
       <NodeCatalogModal
         isOpen={isCatalogOpen}
         onClose={() => setIsCatalogOpen(false)}
         onSelectNode={handleSelectNode}
       />
 
+      {/* // UI-REGION: Node Settings Drawer (double-click config panel) */}
       {settingsNode && (
         <NodeSettingsModal
           node={settingsNode}

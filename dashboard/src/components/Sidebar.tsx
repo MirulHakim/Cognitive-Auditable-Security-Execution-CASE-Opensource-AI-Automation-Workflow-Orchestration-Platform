@@ -29,6 +29,9 @@ interface SidebarProps {
   onCloseMobile?: () => void;
 }
 
+// UI-REGION: Sidebar — primary navigation rail (desktop collapse to icon
+// rail, < 768px slide-out drawer with backdrop). Presentational: tab
+// selection is lifted to App via onSelectTab/onCloseMobile.
 export const Sidebar: React.FC<SidebarProps> = ({
   currentTab,
   onSelectTab,

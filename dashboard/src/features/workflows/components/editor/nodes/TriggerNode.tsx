@@ -38,6 +38,9 @@ interface TriggerNodeProps {
   onOpenSettings?: (nodeId: string) => void;
 }
 
+// UI-REGION: Trigger Node — canvas card for trigger-* types (D-capsule
+// layout, right-side output port). Presentational: drag + port wiring live
+// here, workflow state is owned by WorkflowEditor.
 export const TriggerNode: React.FC<TriggerNodeProps> = ({
   node,
   scale,

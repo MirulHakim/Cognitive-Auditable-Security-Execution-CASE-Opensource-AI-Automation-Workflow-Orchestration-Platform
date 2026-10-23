@@ -36,6 +36,9 @@ interface LogicNodeProps {
   onOpenSettings?: (nodeId: string) => void;
 }
 
+// UI-REGION: If/Else Logic Node — canvas card rendering one dynamic output
+// port per config.branches entry. Presentational: workflow state is owned by
+// WorkflowEditor.
 export const LogicNode: React.FC<LogicNodeProps> = ({
   node,
   scale,

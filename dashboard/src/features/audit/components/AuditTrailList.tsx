@@ -1,6 +1,11 @@
 import React, { useState } from "react";
 import { FiLock, FiSearch, FiChevronRight, FiCheckCircle } from "react-icons/fi";
 
+// UI-REGION: Audit Trail list — event/job group rows.
+// TODO[BACKEND]: Replace this hard-coded mockAuditEntries array with a data
+// fetch from GET /api/audit (useEffect + setState), returning the paginated
+// audit groups with their hash-chain fields (prev_hash/hash/integrity)
+// straight from PostgreSQL.
 // Mock data shaped exactly like the screenshot
 const mockAuditEntries = [
   {

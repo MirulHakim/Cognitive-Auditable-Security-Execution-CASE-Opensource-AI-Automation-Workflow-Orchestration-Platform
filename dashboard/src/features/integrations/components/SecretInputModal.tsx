@@ -25,6 +25,11 @@ export const SecretInputModal: React.FC<SecretInputModalProps> = ({
 
   if (!isOpen) return null;
 
+  // TODO[BACKEND]: The trimmed secret below (Telegram bot token or Gmail
+  // credential) must be POSTed to /api/integrations/secrets over TLS, where
+  // Express encrypts it with AES-256-GCM (unique IV + auth tag, per-user
+  // data key) before persisting the ciphertext to PostgreSQL — do not keep
+  // the plaintext in client state after submit.
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!value.trim()) return;

@@ -98,6 +98,13 @@ export const NodeSettingsModal: React.FC<NodeSettingsModalProps> = ({ node, onCl
     onClose();
   };
 
+  // UI-REGION: Node Settings Drawer — config form persistence point.
+  // TODO[BACKEND]: Every drawer edit (input mapping rows, Document Reader
+  // folderPath/grantedFiles whitelist, trigger & connector fields) flows
+  // through updateFieldValue → onUpdateConfig local canvas state only.
+  // Serialize the full SettingsConfig into the workflow JSON payload here and
+  // PUT it to /api/workflows/:id/nodes/:nodeId so the config is saved to the
+  // database instead of living in component memory.
   const updateFieldValue = (key: string, value: unknown) => {
     onUpdateConfig(node.id, { [key]: value });
   };
@@ -345,6 +352,11 @@ export const NodeSettingsModal: React.FC<NodeSettingsModalProps> = ({ node, onCl
   const renderAdvancedTab = () => {
     if (isConnector) {
       // Document Reader: folder access summary instead of payload mapping
+      // TODO[BACKEND]: The whitelisted folder shown here (config.folderPath +
+      // config.grantedFiles) must be serialized into the node's JSON config
+      // payload on save — POST/PUT via /api/workflows/:id — so the backend can
+      // validate the folder against the org whitelist before storing it in
+      // PostgreSQL.
       if (config.service === "docs") {
         const files = config.grantedFiles || [];
         return (
