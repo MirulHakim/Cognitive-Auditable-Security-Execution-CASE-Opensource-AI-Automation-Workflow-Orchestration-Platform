@@ -13,7 +13,13 @@ import {
   FiFileText,
 } from "react-icons/fi";
 
-export type NodeCategory = "triggers" | "ai" | "logic" | "connectors" | "terminal";
+export type NodeCategory =
+  | "triggers"
+  | "ai"
+  | "logic"
+  | "tools"
+  | "database"
+  | "integrations";
 
 export interface NodeDefinition {
   type: string;
@@ -186,7 +192,7 @@ export const NODE_REGISTRY: NodeDefinition[] = [
   },
   {
     type: "approval-human",
-    category: "terminal",
+    category: "logic",
     title: "Human Approval",
     description:
       "Pauses execution until a human clicks Approve or Reject.",
@@ -200,7 +206,7 @@ export const NODE_REGISTRY: NodeDefinition[] = [
   },
   {
     type: "document-generator",
-    category: "terminal",
+    category: "tools",
     title: "Document Generator",
     description: "Generates formatted documents (PDF, Word) from AI outputs.",
     icon: FiFileText,
@@ -216,7 +222,7 @@ export const NODE_REGISTRY: NodeDefinition[] = [
   // Connectors
   {
     type: "connector-http",
-    category: "connectors",
+    category: "tools",
     title: "HTTP Request",
     description: "Dispatches authenticated REST requests to external APIs.",
     icon: FiShare2,
@@ -234,7 +240,7 @@ export const NODE_REGISTRY: NodeDefinition[] = [
   },
   {
     type: "connector-docs",
-    category: "connectors",
+    category: "database",
     title: "Document Reader",
     description: "Reads files from folders your team shares with the AI.",
     icon: FiFolder,
@@ -249,7 +255,7 @@ export const NODE_REGISTRY: NodeDefinition[] = [
   },
   {
     type: "connector-gmail",
-    category: "connectors",
+    category: "integrations",
     title: "Gmail",
     description: "Sends email through a linked Gmail account (end of chain).",
     icon: FiMail,
@@ -268,7 +274,7 @@ export const NODE_REGISTRY: NodeDefinition[] = [
   },
   {
     type: "connector-telegram",
-    category: "connectors",
+    category: "integrations",
     title: "Telegram",
     description: "Sends a message through your Telegram bot (end of chain).",
     icon: FiSend,

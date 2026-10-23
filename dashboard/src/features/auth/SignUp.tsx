@@ -1,15 +1,9 @@
 import React, { useState } from "react";
 import {
-  FiLock,
-  FiMail,
-  FiUser,
-  FiArrowRight,
   FiShield,
-  FiAlertCircle,
   FiArrowLeft,
   FiCheckCircle,
 } from "react-icons/fi";
-import { FcGoogle } from "react-icons/fc";
 
 interface SignUpProps {
   // If an invite token exists in URL or props, the form locks to that email & role
@@ -19,67 +13,64 @@ interface SignUpProps {
   onNavigateToLogin: () => void;
 }
 
+/** Official Google "G" mark (4-color) for the enterprise SSO button. */
+const GoogleGIcon: React.FC<{ className?: string }> = ({
+  className = "w-4 h-4",
+}) => (
+  <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+    <path
+      fill="#4285F4"
+      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z"
+    />
+    <path
+      fill="#34A853"
+      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+    />
+    <path
+      fill="#FBBC05"
+      d="M5.84 14.1c-.22-.66-.35-1.36-.35-2.1s.13-1.44.35-2.1V7.06H2.18A10.97 10.97 0 0 0 1 12c0 1.77.43 3.45 1.18 4.94l3.66-2.84z"
+    />
+    <path
+      fill="#EA4335"
+      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+    />
+  </svg>
+);
+
 export const SignUp: React.FC<SignUpProps> = ({
   inviteToken,
   isInitialAdminSetup = true, // Default to true for prototyping initial setup
   onSignUpSuccess,
   onNavigateToLogin,
 }) => {
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState(
-    inviteToken ? "invited.colleague@axiomflow.internal" : "",
-  );
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [isAuthing, setIsAuthing] = useState(false);
 
   // If invited, role is predetermined by the inviter; if initial admin, it's admin
   const assignedRole: "admin" | "staff" | "auditor" = isInitialAdminSetup
     ? "admin"
     : "staff";
 
-  const handleSignUpSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-
-    if (!fullName || !email || !password || !confirmPassword) {
-      setError("Please fill in all fields.");
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.");
-      return;
-    }
-
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters long.");
-      return;
-    }
-
-    // =========================================================================
-    // TODO: BACKEND SIGN-UP & INVITATION VALIDATION LOGIC
-    // 1. If isInitialAdminSetup:
-    //    - Verify instance DB has 0 admins.
-    //    - Hash password and create Root Admin user (role: 'admin').
-    // 2. If inviteToken:
-    //    - POST /api/auth/register-invite with { token, fullName, password }
-    //    - Verify token is valid & not expired.
-    //    - Consume token and create user with the assigned role from DB.
-    // 3. Return session/JWT cookie.
-    // =========================================================================
-
-    // Prototyping mock: Route into dashboard with the target role
-    onSignUpSuccess(assignedRole);
-  };
-
   const handleGoogleSignUp = () => {
+    if (isAuthing) return;
+    setIsAuthing(true);
+
     // =========================================================================
-    // TODO: GOOGLE SSO LINKING
-    // 1. If initial admin: Link Google ID to primary Root Admin.
-    // 2. If inviteToken: Link Google ID to the specific invited email address.
+    // TODO: GOOGLE OAUTH + PROVISIONING LOGIC
+    // 1. Trigger OAuth2 popup or redirect flow with the Google provider.
+    // 2. If initial admin: link the Google ID to the primary Root Admin, but
+    //    only while the instance database still has zero admins.
+    // 3. If inviteToken: verify the token is valid & unexpired, then link the
+    //    Google ID to the invited corporate address and consume the token.
+    // 4. Whitelist check: reject personal Google accounts; only corporate
+    //    domain accounts or invited users may enter.
     // =========================================================================
-    onSignUpSuccess(assignedRole);
+
+    // Prototyping mock: brief Google Workspace round-trip, then enter with the
+    // target role.
+    window.setTimeout(() => {
+      setIsAuthing(false);
+      onSignUpSuccess(assignedRole);
+    }, 1600);
   };
 
   return (
@@ -130,118 +121,44 @@ export const SignUp: React.FC<SignUpProps> = ({
           )}
         </div>
 
-        {/* Error Alert */}
-        {error && (
-          <div className="mb-4 p-3 bg-danger/10 border border-danger/20 rounded-lg flex items-center gap-2 text-danger text-xs">
-            <FiAlertCircle className="w-4 h-4 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        {/* Registration Form */}
-        <form onSubmit={handleSignUpSubmit} className="space-y-3.5">
-          <div>
-            <label className="block text-xs font-medium text-secondary mb-1">
-              Full Legal Name
-            </label>
-            <div className="relative">
-              <FiUser className="w-4 h-4 text-faint absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="text"
-                required
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="Amirul Hakimi"
-                className="w-full bg-surface-sunken border border-subtle rounded-lg pl-9 pr-3 py-2 text-xs text-secondary placeholder:text-faint focus:outline-none focus:border-accent-primary transition-colors"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-secondary mb-1">
-              Corporate Email Address
-            </label>
-            <div className="relative">
-              <FiMail className="w-4 h-4 text-faint absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="email"
-                required
-                disabled={Boolean(inviteToken)} // Invited email is fixed by admin token
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@axiomflow.internal"
-                className={`w-full bg-surface-sunken border border-subtle rounded-lg pl-9 pr-3 py-2 text-xs text-secondary placeholder:text-faint focus:outline-none focus:border-accent-primary transition-colors ${
-                  inviteToken ? "opacity-60 cursor-not-allowed" : ""
-                }`}
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-secondary mb-1">
-              Password
-            </label>
-            <div className="relative">
-              <FiLock className="w-4 h-4 text-faint absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••••••"
-                className="w-full bg-surface-sunken border border-subtle rounded-lg pl-9 pr-3 py-2 text-xs text-secondary placeholder:text-faint focus:outline-none focus:border-accent-primary transition-colors"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-secondary mb-1">
-              Confirm Password
-            </label>
-            <div className="relative">
-              <FiLock className="w-4 h-4 text-faint absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="password"
-                required
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••••••"
-                className="w-full bg-surface-sunken border border-subtle rounded-lg pl-9 pr-3 py-2 text-xs text-secondary placeholder:text-faint focus:outline-none focus:border-accent-primary transition-colors"
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            className="w-full py-2.5 px-4 mt-2 bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold text-xs rounded-lg transition-all shadow-md shadow-accent-primary/40 flex items-center justify-center gap-2 active:scale-[0.99]"
-          >
-            <span>
-              {isInitialAdminSetup
-                ? "Initialize & Launch Platform"
-                : "Complete Registration"}
-            </span>
-            <FiArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
-          </button>
-        </form>
-
-        {/* Google SSO Alternative */}
-        <div className="relative my-5 text-center">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-subtle" />
-          </div>
-          <span className="relative bg-surface px-2 text-[10px] uppercase font-semibold text-faint">
-            or connect with
-          </span>
-        </div>
-
+        {/* Google Workspace OAuth — the only way to provision an account */}
         <button
           type="button"
           onClick={handleGoogleSignUp}
-          className="w-full py-2.5 px-4 bg-surface-sunken hover:bg-surface-hover/80 border border-subtle hover:border-strong text-secondary font-medium text-xs rounded-lg transition-colors flex items-center justify-center gap-2.5"
+          disabled={isAuthing}
+          aria-busy={isAuthing}
+          className="w-full py-3 px-4 bg-white hover:bg-[#f8f9fa] active:bg-[#f1f3f4] disabled:cursor-wait border border-[#dadce0] rounded-lg font-medium text-sm text-[#3c4043] shadow-sm transition-colors flex items-center justify-center gap-3"
         >
-          <FcGoogle className="w-4 h-4" />
-          <span>Sign up with Google</span>
+          {isAuthing ? (
+            <>
+              <span className="w-4 h-4 border-2 border-[#dadce0] border-t-[#3c4043] rounded-full animate-spin" />
+              <span>Authenticating via Google Workspace...</span>
+            </>
+          ) : (
+            <>
+              <GoogleGIcon className="w-[18px] h-[18px]" />
+              <span>Sign in with Google</span>
+            </>
+          )}
         </button>
+
+        {/* Access policy copy */}
+        <p className="mt-4 text-center text-[11px] text-muted leading-relaxed">
+          Provisioning is restricted to whitelisted corporate Google accounts
+          and users holding a valid invitation — personal Google accounts are
+          not permitted.
+        </p>
+
+        {/* Invitation lock notice */}
+        {inviteToken && (
+          <p className="mt-3 text-center text-[11px] text-muted leading-relaxed">
+            This invitation is locked to{" "}
+            <span className="text-secondary font-medium">
+              invited.colleague@axiomflow.internal
+            </span>{" "}
+            — sign in with that Google account.
+          </p>
+        )}
       </div>
     </div>
   );

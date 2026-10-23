@@ -1,60 +1,64 @@
 import React, { useState } from "react";
-import {
-  FiLock,
-  FiMail,
-  FiArrowRight,
-  FiShield,
-  FiAlertCircle,
-} from "react-icons/fi";
-import { FcGoogle } from "react-icons/fc";
+import { FiShield } from "react-icons/fi";
 
 interface LoginProps {
   onLoginSuccess: (userRole: "admin" | "staff" | "auditor") => void;
   onNavigateToSignUp?: () => void;
 }
 
+/** Official Google "G" mark (4-color) for the enterprise SSO button. */
+const GoogleGIcon: React.FC<{ className?: string }> = ({
+  className = "w-4 h-4",
+}) => (
+  <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+    <path
+      fill="#4285F4"
+      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z"
+    />
+    <path
+      fill="#34A853"
+      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+    />
+    <path
+      fill="#FBBC05"
+      d="M5.84 14.1c-.22-.66-.35-1.36-.35-2.1s.13-1.44.35-2.1V7.06H2.18A10.97 10.97 0 0 0 1 12c0 1.77.43 3.45 1.18 4.94l3.66-2.84z"
+    />
+    <path
+      fill="#EA4335"
+      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+    />
+  </svg>
+);
+
 export const Login: React.FC<LoginProps> = ({
   onLoginSuccess,
   onNavigateToSignUp,
 }) => {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [isAuthing, setIsAuthing] = useState(false);
 
   // PROTOTYPING FLAG:
   // Set to true to simulate a fresh installation (only the primary host admin can sign up)
   // When set to false, only direct login is available; invitees must use their token link.
   const isFirstTimeSetup = true;
 
-  const handleStandardLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-
-    if (!email || !password) {
-      setError("Please provide both email and password.");
-      return;
-    }
-
-    // =========================================================================
-    // TODO: AUTHENTICATION BACKEND LOGIC
-    // 1. Call your auth API endpoint (e.g. POST /api/auth/login)
-    // 2. Validate password hash & receive JWT / session cookie
-    // 3. Extract the authenticated user's role ('admin' | 'staff' | 'auditor')
-    // =========================================================================
-
-    // Prototyping mock: Grant admin role and transition to dashboard
-    onLoginSuccess("admin");
-  };
-
   const handleGoogleSignIn = () => {
+    if (isAuthing) return;
+    setIsAuthing(true);
+
     // =========================================================================
     // TODO: GOOGLE OAUTH LOGIC
-    // 1. Trigger OAuth2 popup or redirect flow with Google provider
-    // 2. Verify account matches registered organization or allowed admin identity
+    // 1. Trigger OAuth2 popup or redirect flow with the Google provider.
+    // 2. Verify the account domain is on the corporate whitelist, or that a
+    //    pending workspace invitation exists for this address.
+    // 3. Exchange the assertion for a session JWT and resolve the user's role
+    //    ('admin' | 'staff' | 'auditor').
     // =========================================================================
 
-    // Prototyping mock: Route straight into dashboard as admin
-    onLoginSuccess("admin");
+    // Prototyping mock: brief Google Workspace round-trip, then enter as admin.
+    window.setTimeout(() => {
+      setIsAuthing(false);
+      onLoginSuccess("admin");
+    }, 1600);
   };
 
   const handleInitialAdminSetup = () => {
@@ -70,7 +74,7 @@ export const Login: React.FC<LoginProps> = ({
     } else {
       alert("Routing to primary platform setup wizard...");
     }
-  };;
+  }
 
   return (
     <div className="h-screen w-screen bg-background flex items-center justify-center p-4 select-none relative overflow-hidden">
@@ -91,88 +95,32 @@ export const Login: React.FC<LoginProps> = ({
           </p>
         </div>
 
-        {/* Error Alert */}
-        {error && (
-          <div className="mb-4 p-3 bg-danger/10 border border-danger/20 rounded-lg flex items-center gap-2 text-danger text-xs">
-            <FiAlertCircle className="w-4 h-4 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        {/* Credentials Form */}
-        <form onSubmit={handleStandardLogin} className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-secondary mb-1.5">
-              Email Address
-            </label>
-            <div className="relative">
-              <FiMail className="w-4 h-4 text-faint absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@company.com"
-                className="w-full bg-surface-sunken border border-subtle rounded-lg pl-9 pr-3 py-2 text-xs text-secondary placeholder:text-faint focus:outline-none focus:border-accent-primary transition-colors"
-              />
-            </div>
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-xs font-medium text-secondary">
-                Password
-              </label>
-              <button
-                type="button"
-                onClick={() => alert("Password reset workflow placeholder")}
-                className="text-[11px] text-accent-primary hover:underline"
-              >
-                Forgot?
-              </button>
-            </div>
-            <div className="relative">
-              <FiLock className="w-4 h-4 text-faint absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••••••"
-                className="w-full bg-surface-sunken border border-subtle rounded-lg pl-9 pr-3 py-2 text-xs text-secondary placeholder:text-faint focus:outline-none focus:border-accent-primary transition-colors"
-              />
-            </div>
-          </div>
-
-          {/* Primary Submit Button */}
-          <button
-            type="submit"
-            className="w-full py-2.5 px-4 mt-2 bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold text-xs rounded-lg transition-all shadow-md shadow-accent-primary/40 flex items-center justify-center gap-2 active:scale-[0.99]"
-          >
-            <span>Sign In to Dashboard</span>
-            <FiArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
-          </button>
-        </form>
-
-        {/* Divider */}
-        <div className="relative my-6 text-center">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-subtle" />
-          </div>
-          <span className="relative bg-surface px-2 text-[10px] uppercase font-semibold text-faint">
-            or continue with
-          </span>
-        </div>
-
-        {/* Google Authentication */}
+        {/* Google Workspace OAuth — the only sign-in method */}
         <button
           type="button"
           onClick={handleGoogleSignIn}
-          className="w-full py-2.5 px-4 bg-surface-sunken hover:bg-surface-hover/80 border border-subtle hover:border-strong text-secondary font-medium text-xs rounded-lg transition-colors flex items-center justify-center gap-2.5"
+          disabled={isAuthing}
+          aria-busy={isAuthing}
+          className="w-full py-3 px-4 bg-white hover:bg-[#f8f9fa] active:bg-[#f1f3f4] disabled:cursor-wait border border-[#dadce0] rounded-lg font-medium text-sm text-[#3c4043] shadow-sm transition-colors flex items-center justify-center gap-3"
         >
-          <FcGoogle className="w-4 h-4" />
-          <span>Sign in with Google</span>
+          {isAuthing ? (
+            <>
+              <span className="w-4 h-4 border-2 border-[#dadce0] border-t-[#3c4043] rounded-full animate-spin" />
+              <span>Authenticating via Google Workspace...</span>
+            </>
+          ) : (
+            <>
+              <GoogleGIcon className="w-[18px] h-[18px]" />
+              <span>Sign in with Google</span>
+            </>
+          )}
         </button>
+
+        {/* Access policy copy */}
+        <p className="mt-4 text-center text-[11px] text-muted leading-relaxed">
+          Access is restricted to whitelisted corporate Google accounts and
+          invited users only — personal Google accounts are not permitted.
+        </p>
 
         {/* Initial Host Setup / First Admin Creation */}
         {isFirstTimeSetup ? (

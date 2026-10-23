@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import type { IconType } from "react-icons";
 import {
   FiUser,
@@ -11,6 +11,10 @@ import {
   FiMoon,
   FiMonitor,
   FiAperture,
+  FiServer,
+  FiWifi,
+  FiAlertCircle,
+  FiCamera,
 } from "react-icons/fi";
 import ConfirmModal from "../../components/ConfirmModal";
 import { useTheme, type ThemePreference } from "../../contexts/ThemeContext";
@@ -32,10 +36,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   },
   onLogout,
 }) => {
-  // Profile State
+  // Profile State (corporate email is SSO-managed and read-only below)
   const [name, setName] = useState(currentUser.name);
-  const [email, setEmail] = useState(currentUser.email);
+  const [contactNumber, setContactNumber] = useState("+60 12-345 6789");
   const [avatarInitials, setAvatarInitials] = useState("AR");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const avatarFileRef = useRef<HTMLInputElement>(null);
 
   // Security State
   const [currentPassword, setCurrentPassword] = useState("");
@@ -47,6 +54,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [canvasSound, setCanvasSound] = useState(true);
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [autoSaveCanvas, setAutoSaveCanvas] = useState(true);
+
+  // Local LLM Infrastructure State (admin only — card is role-gated below)
+  const [llmHost, setLlmHost] = useState("http://192.168.1.100");
+  const [llmPort, setLlmPort] = useState("8080");
+  const [contextWindow, setContextWindow] = useState("32k");
+  const [llmStatus, setLlmStatus] = useState<
+    "idle" | "testing" | "success" | "error"
+  >("idle");
+  const [llmMessage, setLlmMessage] = useState("");
 
   // Feedback State
   const [profileSaved, setProfileSaved] = useState(false);
@@ -71,6 +87,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setTimeout(() => setProfileSaved(false), 2500);
   };
 
+  // Simulated profile-picture upload: pick a local file, show a brief
+  // uploading state, then swap the initials avatar for the real preview.
+  const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingAvatar(true);
+    const previewUrl = URL.createObjectURL(file);
+    window.setTimeout(() => {
+      setAvatarUrl(previewUrl);
+      setIsUploadingAvatar(false);
+    }, 900);
+    e.target.value = "";
+  };
+
   const handleUpdatePassword = (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentPassword) {
@@ -93,8 +124,41 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setTimeout(() => setPasswordStatus(null), 3000);
   };
 
+  const handleTestLlmConnection = () => {
+    const host = llmHost.trim();
+    const port = llmPort.trim();
+
+    if (!host || !port) {
+      setLlmStatus("error");
+      setLlmMessage("Enter a server host and API port before testing.");
+      return;
+    }
+    if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
+      setLlmStatus("error");
+      setLlmMessage("API port must be a whole number between 1 and 65535.");
+      return;
+    }
+
+    setLlmStatus("testing");
+    setLlmMessage("");
+
+    // =========================================================================
+    // TODO: REAL INFRASTRUCTURE PING
+    // GET {host}:{port}/v1/models with a short timeout and report latency
+    // from the on-premise inference server.
+    // =========================================================================
+
+    // Prototyping mock: simulate pinging the local hardware.
+    window.setTimeout(() => {
+      setLlmStatus("success");
+      setLlmMessage(
+        `llama-3-70b-instruct reachable at ${host}:${port} — handshake 41 ms · context window ${contextWindow}`,
+      );
+    }, 1400);
+  };
+
   return (
-    <div className="p-6 space-y-6 max-w-5xl mx-auto text-primary">
+    <div className="p-6 space-y-6 max-w-7xl mx-auto text-primary">
       {/* Page Header */}
       <div>
         <h1 className="text-xl font-bold text-primary tracking-tight">
@@ -106,9 +170,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {/* Left Column: Account Profile & Preferences */}
-        <div className="md:col-span-2 space-y-6">
+        <div className="md:col-span-2 xl:col-span-2 space-y-6">
           {/* Profile Card */}
           <div className="bg-surface border border-subtle rounded-xl p-5 shadow-sm">
             <div className="flex items-center gap-2.5 pb-4 border-b border-subtle">
@@ -155,22 +219,66 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
                 <div>
                   <label className="block text-secondary font-medium mb-1">
-                    Email Address
+                    Contact Number
                   </label>
                   <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-background border border-subtle rounded-lg px-3 py-2 text-primary focus:outline-none focus:border-accent-primary/50"
+                    type="tel"
+                    value={contactNumber}
+                    onChange={(e) => setContactNumber(e.target.value)}
+                    placeholder="+60 12-345 6789"
+                    className="w-full bg-background border border-subtle rounded-lg px-3 py-2 text-primary placeholder:text-faint focus:outline-none focus:border-accent-primary/50"
                   />
                 </div>
               </div>
 
+              {/* Corporate email is managed by Google SSO — read-only */}
+              <div>
+                <label className="block text-secondary font-medium mb-1">
+                  Email Address
+                </label>
+                <div className="w-full bg-surface-sunken/60 border border-subtle rounded-lg px-3 py-2 flex items-center justify-between gap-2 text-primary">
+                  <span className="truncate">{currentUser.email}</span>
+                  <span className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded border bg-accent-primary/10 text-accent-primary/90 border-accent-primary/20 whitespace-nowrap">
+                    SSO · READ-ONLY
+                  </span>
+                </div>
+              </div>
+
               <div className="flex items-center justify-between pt-3 border-t border-subtle/80">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-full bg-surface-hover border border-strong flex items-center justify-center text-[10px] font-bold text-accent-primary">
-                    {avatarInitials}
+                <div className="flex items-center gap-2.5">
+                  {/* Profile picture + upload overlay button */}
+                  <div className="relative group w-9 h-9 shrink-0">
+                    <div className="w-full h-full rounded-full bg-surface-hover border border-strong flex items-center justify-center overflow-hidden text-[10px] font-bold text-accent-primary">
+                      {avatarUrl ? (
+                        <img
+                          src={avatarUrl}
+                          alt="Profile preview"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        avatarInitials
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      title="Upload profile picture"
+                      aria-label="Upload profile picture"
+                      onClick={() => avatarFileRef.current?.click()}
+                      className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-surface border border-strong shadow-md flex items-center justify-center text-muted hover:text-accent-primary hover:border-accent-primary/50 transition-colors"
+                    >
+                      {isUploadingAvatar ? (
+                        <span className="w-2.5 h-2.5 border border-strong border-t-accent-primary rounded-full animate-spin" />
+                      ) : (
+                        <FiCamera className="w-2.5 h-2.5" />
+                      )}
+                    </button>
+                    <input
+                      ref={avatarFileRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleAvatarFileChange}
+                    />
                   </div>
                   <span className="text-[11px] text-muted">
                     Role:{" "}
@@ -274,6 +382,118 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           </div>
 
+          {/* Local LLM Infrastructure — visible to admins only */}
+          {currentUser.role === "admin" && (
+            <div className="bg-surface border border-subtle rounded-xl p-5 shadow-sm">
+              <div className="flex items-center gap-2.5 pb-4 border-b border-subtle">
+                <div className="w-8 h-8 rounded-lg bg-accent-primary/10 border border-accent-primary/20 text-accent-primary flex items-center justify-center">
+                  <FiServer className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-primary">
+                    Local LLM Infrastructure
+                  </h3>
+                  <p className="text-[11px] text-muted">
+                    On-Premise AI Engine — the local LLaMA 3 instance every AI
+                    node calls.
+                  </p>
+                </div>
+              </div>
+
+              <p className="mt-4 text-[11px] text-muted leading-relaxed">
+                CASE routes prompts to this local LLaMA 3 model so documents
+                and payloads stay inside your network — nothing is sent to
+                external cloud providers — while Malay language processing
+                runs natively on your own hardware.
+              </p>
+
+              <div className="mt-4 space-y-3.5 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-secondary font-medium mb-1">
+                      Server IP / Host URL
+                    </label>
+                    <input
+                      type="text"
+                      value={llmHost}
+                      onChange={(e) => setLlmHost(e.target.value)}
+                      placeholder="https://llm.internal.case"
+                      className="w-full bg-background border border-subtle rounded-lg px-3 py-2 text-primary font-mono placeholder:text-faint focus:outline-none focus:border-accent-primary/50"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-secondary font-medium mb-1">
+                      API Port
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={llmPort}
+                      onChange={(e) => setLlmPort(e.target.value)}
+                      placeholder="8080"
+                      className="w-full bg-background border border-subtle rounded-lg px-3 py-2 text-primary font-mono placeholder:text-faint focus:outline-none focus:border-accent-primary/50"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-secondary font-medium mb-1">
+                      Context Window Limit
+                    </label>
+                    <select
+                      value={contextWindow}
+                      onChange={(e) => setContextWindow(e.target.value)}
+                      className="w-full bg-background border border-subtle rounded-lg px-3 py-2 text-primary focus:outline-none focus:border-accent-primary/50"
+                    >
+                      <option value="8k">8k tokens</option>
+                      <option value="16k">16k tokens</option>
+                      <option value="32k">32k tokens</option>
+                      <option value="64k">64k tokens</option>
+                      <option value="128k">128k tokens</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      onClick={handleTestLlmConnection}
+                      disabled={llmStatus === "testing"}
+                      className="w-full inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-lg border border-strong bg-surface-hover/60 hover:bg-surface-hover text-secondary disabled:opacity-60 disabled:cursor-wait transition-colors font-medium text-xs"
+                    >
+                      {llmStatus === "testing" ? (
+                        <>
+                          <span className="w-3.5 h-3.5 border-2 border-strong border-t-accent-primary rounded-full animate-spin" />
+                          <span>Pinging local server...</span>
+                        </>
+                      ) : (
+                        <>
+                          <FiWifi className="w-3.5 h-3.5 text-accent-primary" />
+                          <span>Test Server Connection</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {llmStatus === "success" && (
+                  <div className="flex items-start gap-2 p-2.5 rounded-lg bg-success/10 border border-success/20 text-success text-[11px] leading-relaxed">
+                    <FiCheck className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>{llmMessage}</span>
+                  </div>
+                )}
+
+                {llmStatus === "error" && (
+                  <div className="flex items-start gap-2 p-2.5 rounded-lg bg-danger/10 border border-danger/20 text-danger text-[11px] leading-relaxed">
+                    <FiAlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>{llmMessage}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Appearance Preferences */}
           <div className="bg-surface border border-subtle rounded-xl p-5 shadow-sm">
             <div className="flex items-center gap-2.5 pb-4 border-b border-subtle">
@@ -326,7 +546,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
 
         {/* Right Column: Password & Session Logout */}
-        <div className="space-y-6">
+        <div className="md:col-span-2 xl:col-span-1 space-y-6">
           {/* Change Password Card */}
           <div className="bg-surface border border-subtle rounded-xl p-5 shadow-sm">
             <div className="flex items-center gap-2.5 pb-3 border-b border-subtle">

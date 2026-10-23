@@ -1,8 +1,9 @@
 import React, { useState } from "react";
-import { FiPlus, FiZap } from "react-icons/fi";
+import { FiPlus, FiZap, FiStar } from "react-icons/fi";
 import WorkflowTable, {
   type WorkflowItem,
 } from "./components/list/WorkflowTable";
+import AIGeneratorChatModal from "./components/AIGeneratorChatModal";
 import WorkflowStatsBar, {
   type StatusFilter,
 } from "./components/list/WorkflowStatsBar";
@@ -86,6 +87,9 @@ export const WorkflowsView: React.FC<WorkflowsViewProps> = ({
   const [selectedCategory, setSelectedCategory] =
     useState<CategoryFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+
+  // AI workflow generator chat (prototype)
+  const [isAiChatOpen, setIsAiChatOpen] = useState(false);
 
   // Track which workflow is pending deletion confirmation
   const [workflowToDelete, setWorkflowToDelete] =
@@ -185,14 +189,25 @@ export const WorkflowsView: React.FC<WorkflowsViewProps> = ({
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => onOpenBuilder?.()}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold text-xs transition-all shadow-md shadow-accent-primary/40 active:scale-95"
-        >
-          <FiPlus className="w-4 h-4 stroke-[2.5]" />
-          Create Workflow
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setIsAiChatOpen(true)}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-accent-primary/40 bg-accent-primary/10 hover:bg-accent-primary/20 text-accent-primary font-semibold text-xs transition-all active:scale-95"
+          >
+            <FiStar className="w-4 h-4" />
+            Generate with AI
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onOpenBuilder?.()}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold text-xs transition-all shadow-md shadow-accent-primary/40 active:scale-95"
+          >
+            <FiPlus className="w-4 h-4 stroke-[2.5]" />
+            Create Workflow
+          </button>
+        </div>
       </div>
 
       {/* Stats Bar */}
@@ -251,6 +266,16 @@ export const WorkflowsView: React.FC<WorkflowsViewProps> = ({
         variant="danger"
         onConfirm={handleConfirmDelete}
         onCancel={() => setWorkflowToDelete(null)}
+      />
+
+      {/* AI Workflow Generator Chat (prototype) */}
+      <AIGeneratorChatModal
+        isOpen={isAiChatOpen}
+        onClose={() => setIsAiChatOpen(false)}
+        onOpenBuilder={(workflowId) => {
+          setIsAiChatOpen(false);
+          onOpenBuilder?.(workflowId);
+        }}
       />
     </div>
   );

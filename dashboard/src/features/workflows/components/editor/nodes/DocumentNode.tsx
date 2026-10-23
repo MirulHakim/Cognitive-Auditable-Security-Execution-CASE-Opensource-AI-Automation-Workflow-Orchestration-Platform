@@ -212,8 +212,7 @@ export const DocumentNode: React.FC<DocumentNodeProps> = ({
         onMouseUp={(e) => {
           e.stopPropagation();
           onConnectTarget?.(node.id, "tool");
-        }}
-        title="Tool port — pairs with an AI agent's tool port; drag out to detach the newest wire (LIFO)"
+        }}          title="Tool port — pairs with an AI agent's generation (right) or data (left) port; drag out to detach the newest wire (LIFO)"
         className="connection-handle absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-surface-sunken border-2 border-info hover:scale-125 transition-transform cursor-pointer z-30 shadow-md shadow-info/50"
       />
     </div>

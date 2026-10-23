@@ -12,7 +12,17 @@ interface NodeCatalogProps {
   onSelectNode: (nodeDef: NodeDefinition) => void;
 }
 
-type CategoryFilter = "all" | NodeCategory;
+type CategoryFilter = NodeCategory;
+
+/* Exact category tabs shown in the Node Library header. */
+const CATEGORY_TABS: Array<{ id: NodeCategory; label: string }> = [
+  { id: "triggers", label: "Triggers" },
+  { id: "ai", label: "AI" },
+  { id: "logic", label: "Logic" },
+  { id: "tools", label: "Tools" },
+  { id: "database", label: "Database" },
+  { id: "integrations", label: "Integrations" },
+];
 
 export const NodeCatalog: React.FC<NodeCatalogProps> = ({
   isOpen,
@@ -21,7 +31,7 @@ export const NodeCatalog: React.FC<NodeCatalogProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] =
-    useState<CategoryFilter>("all");
+    useState<CategoryFilter>("triggers");
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -39,8 +49,7 @@ export const NodeCatalog: React.FC<NodeCatalogProps> = ({
   const filteredNodes = [...NODE_REGISTRY]
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     .filter((node) => {
-      const matchesCategory =
-        selectedCategory === "all" || node.category === selectedCategory;
+      const matchesCategory = node.category === selectedCategory;
       const matchesSearch =
         node.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         node.description.toLowerCase().includes(searchQuery.toLowerCase());
@@ -98,27 +107,18 @@ export const NodeCatalog: React.FC<NodeCatalogProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-            {(
-              [
-                "all",
-                "triggers",
-                "AI",
-                "logic",
-                "connectors",
-                "terminal",
-              ] as CategoryFilter[]
-            ).map((category) => (
+            {CATEGORY_TABS.map((tab) => (
               <button
-                key={category}
+                key={tab.id}
                 type="button"
-                onClick={() => setSelectedCategory(category)}
-                className={`capitalize px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                  selectedCategory === category
+                onClick={() => setSelectedCategory(tab.id)}
+                className={`px-3 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+                  selectedCategory === tab.id
                     ? "bg-accent-primary/10 text-accent-primary border border-accent-primary/30"
                     : "text-muted hover:text-secondary border border-transparent hover:border-subtle"
                 }`}
               >
-                {category}
+                {tab.label}
               </button>
             ))}
           </div>
@@ -135,7 +135,8 @@ export const NodeCatalog: React.FC<NodeCatalogProps> = ({
                 No nodes match your filter
               </p>
               <p className="text-[11px] text-faint mt-1 max-w-xs">
-                Try searching for another keyword or select "All" categories.
+                Try searching for another keyword or switch to a different
+                category tab.
               </p>
             </div>
           ) : (
