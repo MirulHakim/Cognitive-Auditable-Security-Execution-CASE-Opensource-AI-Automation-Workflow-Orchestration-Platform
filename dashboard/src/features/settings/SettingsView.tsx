@@ -171,7 +171,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {/* Left Column: Account Profile & Preferences */}
+        {/* Left Column: Account, preferences & AI engine */}
         <div className="md:col-span-2 xl:col-span-2 space-y-6">
           {/* Profile Card */}
           <div className="bg-surface border border-subtle rounded-xl p-5 shadow-sm">
@@ -494,58 +494,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           )}
 
-          {/* Appearance Preferences */}
-          <div className="bg-surface border border-subtle rounded-xl p-5 shadow-sm">
-            <div className="flex items-center gap-2.5 pb-4 border-b border-subtle">
-              <div className="w-8 h-8 rounded-lg bg-accent-primary/10 border border-accent-primary/20 text-accent-primary flex items-center justify-center">
-                <FiAperture className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-primary">
-                  Appearance
-                </h3>
-                <p className="text-[11px] text-muted">
-                  Pick how CASE looks on this device. Your choice is saved to
-                  this browser.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-4 space-y-3 text-xs">
-              <div className="grid grid-cols-3 gap-2">
-                {themeOptions.map((option) => {
-                  const Icon = option.icon;
-                  const isActive = theme === option.value;
-
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setTheme(option.value)}
-                      aria-pressed={isActive}
-                      className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg border font-medium transition-colors ${
-                        isActive
-                          ? "bg-accent-primary/10 border-accent-primary/50 text-accent-primary"
-                          : "border-subtle bg-background text-secondary hover:text-primary hover:border-strong"
-                      }`}
-                    >
-                      <Icon className="w-3.5 h-3.5" />
-                      <span>{option.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <p className="text-[11px] text-muted">
-                {theme === "system"
-                  ? `System mode is active — CASE currently follows your OS and is using the ${resolvedTheme} theme.`
-                  : `The ${theme} theme is active across this workspace.`}
-              </p>
-            </div>
-          </div>
         </div>
 
-        {/* Right Column: Password & Session Logout */}
+        {/* Right Column: Password, session & appearance */}
         <div className="md:col-span-2 xl:col-span-1 space-y-6">
           {/* Change Password Card */}
           <div className="bg-surface border border-subtle rounded-xl p-5 shadow-sm">
@@ -660,6 +611,56 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <FiLogOut className="w-3.5 h-3.5" />
                 <span>Log Out of CASE</span>
               </button>
+            </div>
+          </div>
+
+          {/* Appearance Preferences */}
+          <div className="bg-surface border border-subtle rounded-xl p-5 shadow-sm">
+            <div className="flex items-center gap-2.5 pb-4 border-b border-subtle">
+              <div className="w-8 h-8 rounded-lg bg-accent-primary/10 border border-accent-primary/20 text-accent-primary flex items-center justify-center">
+                <FiAperture className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-primary">
+                  Appearance
+                </h3>
+                <p className="text-[11px] text-muted">
+                  Pick how CASE looks on this device. Your choice is saved to
+                  this browser.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-3 text-xs">
+              <div className="grid grid-cols-3 gap-2">
+                {themeOptions.map((option) => {
+                  const Icon = option.icon;
+                  const isActive = theme === option.value;
+
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setTheme(option.value)}
+                      aria-pressed={isActive}
+                      className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg border font-medium transition-colors ${
+                        isActive
+                          ? "bg-accent-primary/10 border-accent-primary/50 text-accent-primary"
+                          : "border-subtle bg-background text-secondary hover:text-primary hover:border-strong"
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      <span>{option.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <p className="text-[11px] text-muted">
+                {theme === "system"
+                  ? `System mode is active — CASE currently follows your OS and is using the ${resolvedTheme} theme.`
+                  : `The ${theme} theme is active across this workspace.`}
+              </p>
             </div>
           </div>
         </div>

@@ -190,9 +190,6 @@ export const AINode: React.FC<AINodeProps> = ({
       }`}
       title="Double-click to open settings"
     >
-      {/* Cyan left accent stripe */}
-      <div className="absolute left-0 top-0 bottom-0 w-1 bg-accent-primary rounded-l-[10px] pointer-events-none" />
-
       {/* Compact header: icon + title + plain-English subtitle */}
       <div className="flex items-center gap-2.5 pl-4 pr-3 py-3">
         <div className="h-9 w-9 rounded-lg bg-accent-primary/10 border border-accent-primary/20 text-accent-primary flex items-center justify-center shrink-0">

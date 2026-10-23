@@ -226,7 +226,7 @@ export const NODE_REGISTRY: NodeDefinition[] = [
     title: "HTTP Request",
     description: "Dispatches authenticated REST requests to external APIs.",
     icon: FiShare2,
-    color: "text-success bg-success/10 border-success/20",
+    color: "text-info bg-info/10 border-info/20",
     defaultConfig: {
       service: "rest-api",
       operation: "Dispatch REST Call",

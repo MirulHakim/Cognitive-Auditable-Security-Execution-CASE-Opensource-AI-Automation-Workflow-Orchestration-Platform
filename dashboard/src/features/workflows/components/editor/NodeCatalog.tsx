@@ -12,10 +12,11 @@ interface NodeCatalogProps {
   onSelectNode: (nodeDef: NodeDefinition) => void;
 }
 
-type CategoryFilter = NodeCategory;
+type CategoryFilter = "all" | NodeCategory;
 
-/* Exact category tabs shown in the Node Library header. */
-const CATEGORY_TABS: Array<{ id: NodeCategory; label: string }> = [
+/* Category tabs shown in the Node Library header (All first). */
+const CATEGORY_TABS: Array<{ id: CategoryFilter; label: string }> = [
+  { id: "all", label: "All" },
   { id: "triggers", label: "Triggers" },
   { id: "ai", label: "AI" },
   { id: "logic", label: "Logic" },
@@ -31,7 +32,7 @@ export const NodeCatalog: React.FC<NodeCatalogProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] =
-    useState<CategoryFilter>("triggers");
+    useState<CategoryFilter>("all");
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -49,7 +50,8 @@ export const NodeCatalog: React.FC<NodeCatalogProps> = ({
   const filteredNodes = [...NODE_REGISTRY]
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     .filter((node) => {
-      const matchesCategory = node.category === selectedCategory;
+      const matchesCategory =
+        selectedCategory === "all" || node.category === selectedCategory;
       const matchesSearch =
         node.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         node.description.toLowerCase().includes(searchQuery.toLowerCase());

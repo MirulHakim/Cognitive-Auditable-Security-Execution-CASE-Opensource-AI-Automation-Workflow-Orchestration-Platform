@@ -180,9 +180,6 @@ export const LogicNode: React.FC<LogicNodeProps> = ({
       }`}
       title="Double-click to open settings"
     >
-      {/* Purple left accent stripe */}
-      <div className="absolute left-0 top-0 bottom-0 w-1 bg-demo rounded-l-[10px] pointer-events-none" />
-
       {/* Compact header: icon + title + plain-English subtitle */}
       <div className="flex items-center gap-2.5 pl-4 pr-3 pt-2.5 pb-2">
         <div className="h-9 w-9 rounded-lg bg-demo/10 border border-demo/20 text-demo flex items-center justify-center shrink-0">
