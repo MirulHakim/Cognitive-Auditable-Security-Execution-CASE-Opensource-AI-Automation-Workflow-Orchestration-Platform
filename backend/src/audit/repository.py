@@ -14,6 +14,33 @@ per-workspace lock. The Postgres version does the same inside one
 transaction with the advisory lock and `SELECT ... FOR UPDATE` (§8.1).
 """
 
+# repository.py - Understanding Notes
+#
+# ChainHead:
+# Tracks the last sequence number and hash for each workspace.
+# Helps detect tail truncation during integrity verification.
+#
+# AuditRepository:
+# Defines the repository interface (append, get_head, list_events).
+# Allows different storage implementations using the same contract.
+#
+# InMemoryAuditRepository.append():
+# 1. Acquire the workspace lock.
+# 2. Read the latest chain head.
+# 3. Yield to the event loop (simulates database latency).
+# 4. Call build(head) to construct the next audit event.
+# 5. Validate sequence and previous_hash using check_links().
+# 6. Store the event.
+# 7. Update the chain head.
+# 8. Release the lock and return a deep copy.
+#
+# Why lock?
+# Prevents concurrent requests from creating duplicate sequence
+# numbers or building events from the same previous hash.
+#
+# Why deep copy?
+# Prevents callers from accidentally modifying stored events.
+
 from __future__ import annotations
 
 import asyncio
@@ -28,7 +55,6 @@ from .schemas import AuditEvent
 if TYPE_CHECKING:
     # psycopg is added in Audit Phase 3; only needed for the type hint.
     from psycopg import AsyncConnection
-
 
 @dataclass(frozen=True)
 class ChainHead:
@@ -51,8 +77,12 @@ class AuditRepository(Protocol):
     async def list_events(self, workspace_id: UUID, *, from_seq: int | None = None,
                           to_seq: int | None = None) -> tuple[AuditEvent, ...]: ...
 
-
-def check_links(workspace_id: UUID, head: Optional[ChainHead], event: AuditEvent) -> None:
+#nak validate that a newly built audit event correctly
+#continues the current workspace hash chain.
+def check_links(workspace_id: UUID, 
+                head: Optional[ChainHead], 
+                event: AuditEvent
+                ) -> None:
     """Guard against a builder that does not continue the chain from `head`."""
     expected_seq = 1 if head is None else head.last_seq + 1
     expected_previous = GENESIS_HASH if head is None else head.last_hash
@@ -88,18 +118,18 @@ class InMemoryAuditRepository:
 
     async def append(self, workspace_id: UUID, build: EventBuilder, *,
                      session: AsyncConnection | None = None) -> AuditEvent:
-        async with self._lock(workspace_id):
+        async with self._lock(workspace_id): #lock workspace_id, request lain untuk same workspace kena tunggu
             head = self._heads.get(workspace_id)
             # Stands in for the database round trips between reading the head and
             # inserting: other tasks get to run here, so the lock is what keeps the
             # chain from forking (exercised by the 50-parallel test).
             await asyncio.sleep(0)
-            event = build(head)
-            check_links(workspace_id, head, event)
-            self._events.setdefault(workspace_id, []).append(event)
-            self._heads[workspace_id] = ChainHead(workspace_id=workspace_id, last_seq=event.seq,
+            event = build(head) #panggil function builder from Audit Service, untuk build event baru. event baru ni akan ada seq dan previous_hash yang betul
+            check_links(workspace_id, head, event) #make sure event baru ni betul betul connect to chain
+            self._events.setdefault(workspace_id, []).append(event) #store event baru ke dalam list of events for that workspace
+            self._heads[workspace_id] = ChainHead(workspace_id=workspace_id, last_seq=event.seq, #store new head for the workspave
                                                   last_hash=event.current_hash, updated_at=event.event_timestamp)
-        return event.model_copy(deep=True)
+        return event.model_copy(deep=True) #caller hanya dapat salinan copy, bukan original. so caller tak boleh ubah event yang dah disimpan
 
     async def get_head(self, workspace_id: UUID) -> Optional[ChainHead]:
         return self._heads.get(workspace_id)

@@ -36,14 +36,19 @@ class AuditEventTypeEnum(str, Enum):
     SECURITY_EVENT = "SECURITY_EVENT"
     INTEGRITY_EVENT = "INTEGRITY_EVENT"
 
-
+# actor_type = manusia, AI atau sistem? actor_role = peranan apa?
+# actor_type dikira dari role: ADMIN/OPERATOR/AUDITOR -> USER, SYSTEM -> SYSTEM, AI -> AI.
 class ActorTypeEnum(str, Enum):
     """Type of actor performing the action (derived from the role, §8.1)."""
     USER = "USER"
+    #could be a system process, a scheduled job, or an external service acting on behalf of the system.
     SYSTEM = "SYSTEM"
     AI = "AI"
 
-
+#   actor_role -> "With which role?"(ADMIN / OPERATOR / ...) - for permissions
+# Why keep both:
+#   - easy filtering: "all human decisions" = actor_type USER (no need to list every role)
+#   - new roles can be added later; the 3 types never change
 class ActorRoleEnum(str, Enum):
     ADMIN = "ADMIN"
     OPERATOR = "OPERATOR"
@@ -51,7 +56,8 @@ class ActorRoleEnum(str, Enum):
     SYSTEM = "SYSTEM"
     AI = "AI"
 
-
+#detect where the request came from: Gmail, Telegram, Web Form, Web App, or System (internal process). 
+# For now: Unknown channels are recorded as SYSTEM by the caller.
 class AuditSourceEnum(str, Enum):
     """Where the action came from. Unknown channels are recorded as SYSTEM by the caller."""
     GMAIL = "GMAIL"
@@ -77,21 +83,27 @@ class AuditEvent(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    #basic details of the event; all fields are required except execution_id (for single-event requests).
     event_id: UUID
     workspace_id: UUID
     seq: int = Field(ge=1)
     event_timestamp: datetime
+    #which request/transaction this event belongs to; optional for single-event requests.
     execution_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    #category of the action
     event_type: AuditEventTypeEnum
+    #what happened, who did it, what role they had, and what was affected.
     action: str = Field(min_length=1, max_length=64)
     actor_type: ActorTypeEnum
     actor_id: str = Field(min_length=1, max_length=128)
     actor_role: ActorRoleEnum
+    #on what resource the action was performed; target_type is a short string (e.g., "document", "workflow") and target_id is a unique identifier for that resource.
     target_type: str = Field(pattern=r"^[a-z][a-z_]{0,31}$")
     target_id: str = Field(min_length=1, max_length=256)
     source: AuditSourceEnum
     outcome: OutcomeEnum
     details: Dict[str, Any]
+    #chain fields: will be used for hash chain verification
     previous_hash: str = Field(pattern=HASH_PATTERN)
     current_hash: str = Field(pattern=HASH_PATTERN)
 

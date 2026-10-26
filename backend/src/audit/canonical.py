@@ -4,9 +4,11 @@ Canonical serialization and event hashing (AUDIT_MODULE_PLAN.md §5.2)
 
 Location: src/audit/canonical.py
 
-The one place that decides which bytes are hashed. Standard library only and
-no imports from the rest of the package, so an exported chain can be
-re-verified offline with this file alone (§8.6).
+This file funtion: 
+To provide canonical serialization and event hashing for the audit and transparency layer of the CASE system. 
+It defines functions to normalize data, compute hashes, and ensure that events are stored in a consistent and verifiable manner.
+Then, it provides a mechanism to compute a SHA-256 hash over the canonical JSON representation of an event, ensuring that the event data can be verified for integrity and authenticity.
+Ringkasnya: Dia tukar satu event jadi teks yang sentiasa sama untuk data yang sama, dan hashkan teks itu. Jadi bila orang lain hash event yang sama, dia dapat hash yang sama.
 """
 
 from __future__ import annotations
@@ -20,23 +22,32 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+#extendable for later kalau hash_field ada version baru
 HASH_VERSION = 1
 
-# Order matters: this is the hashed list after HASH_VERSION. `event_id` is not
-# hashed (random); `seq` is (detects reordering and gaps). Any UI that shows
-# the formula must take the field list from this constant.
+# Order matters: this is the hashed list after HASH_VERSION. `event_id` is not hashed (random);
+# `seq` is (detects reordering and gaps). Any UI that shows the formula must take the field list from this constant.
+#HASH_FIELDS ni adalah senarai field yang akan di hash. will be used in compute_event_hash function. 
 HASH_FIELDS: tuple[str, ...] = (
-    "seq", "workspace_id", "event_timestamp", "execution_id", "event_type", "action",
-    "actor_type", "actor_id", "actor_role", "target_type", "target_id", "source",
+    "seq", 
+    "workspace_id", 
+    "event_timestamp", 
+    "execution_id", 
+    "event_type", 
+    "action",
+    "actor_type", "actor_id", "actor_role", 
+    "target_type", "target_id", "source",
     "outcome", "details", "previous_hash",
 )
-
+#event id takde sebab dia random, so tak boleh dijadikan hash. Seq kena ada sebab nak detect reordering and gaps. Any UI that shows the formula must take the field list from this constant.
+#current_hash takde seabab dia adalah hasil hash, bukan input. 
 GENESIS_HASH = "0" * 64
 TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
 
-
+#macam float atau Decimal yang tak finite (inf, -inf, nan) tak boleh di hash.
+# kita raise error and bagi message je
 class CanonicalizationError(ValueError):
-    """A value cannot be hashed deterministically. The message names the
+    """A value cannot be hashed consistently. The message names the
     path, never the value, so a rejected secret does not end up in a log."""
 
     def __init__(self, path: str, problem: str) -> None:
@@ -50,7 +61,9 @@ def format_timestamp(value: datetime) -> str:
         raise ValueError("datetime must be timezone-aware")
     return value.astimezone(timezone.utc).strftime(TIMESTAMP_FORMAT)
 
-
+#make sure string tu does not contain null bytes and is valid UTF-8. 
+# If not, raise CanonicalizationError with the path and problem description.
+#\x00 ni adalah null byte, which is not allowed in Postgres jsonb.
 def _check_text(value: str, path: str) -> str:
     if "\x00" in value:
         raise CanonicalizationError(path, "contains \\u0000 (cannot be stored in Postgres jsonb)")
@@ -60,7 +73,8 @@ def _check_text(value: str, path: str) -> str:
         raise CanonicalizationError(path, "is not valid UTF-8 (lone surrogate)") from None
     return value
 
-
+#untuk check value type and convert to plain JSON types. 
+#Floats are rejected, Decimal becomes a string, UUID a lowercase string, datetime the UTC timestamp format. Naive datetimes and any type without a fixed rule are rejected rather than guessed.
 def normalize(value: Any, path: str = "$") -> Any:
     """Convert a value to plain JSON types following the §5.2 rules.
 
@@ -102,7 +116,9 @@ def normalize(value: Any, path: str = "$") -> Any:
         return [normalize(item, f"{path}[{i}]") for i, item in enumerate(value)]
     raise CanonicalizationError(path, f"unsupported type {type(value).__name__}")
 
-
+# Converts normalized data into a consistent JSON string for hashing.
+# Sorts keys, removes unnecessary spaces, and preserves Unicode characters.
+# Ensures the same data always produces the same JSON representation.
 def canonical_json(value: Any) -> str:
     """Stable JSON text: sorted keys, no spaces, UTF-8 characters kept as-is."""
     return json.dumps(normalize(value), sort_keys=True, separators=(",", ":"),
@@ -112,7 +128,7 @@ def canonical_json(value: Any) -> str:
 def sha256_hex(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-
+#accept event to do hashing
 def compute_event_hash(event: Any) -> str:
     """SHA-256 over canonical_json([HASH_VERSION, *HASH_FIELDS values]).
 

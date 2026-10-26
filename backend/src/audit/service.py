@@ -40,18 +40,18 @@ _TARGET_TYPE_RE = re.compile(r"[a-z][a-z_]{0,31}")
 _TARGET_ID_RE = re.compile(r"[A-Za-z0-9_/][A-Za-z0-9._:/-]{0,255}")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
-
+#return current UTC datetime
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
-
+#validate enum values (action, outcome, role, source) and raise AuditValidationError if invalid
 def _enum_value(enum_cls: type, value: Any, code: str, label: str):
     try:
         return enum_cls(value)
     except ValueError:
         raise AuditValidationError(f"unknown {label}", code=code) from None
 
-
+#map the role to actor type. SYSTEM and AI roles are mapped to SYSTEM and AI actor types, respectively. All other roles are mapped to USER actor type.
 def _actor_type(role: ActorRoleEnum) -> ActorTypeEnum:
     if role is ActorRoleEnum.SYSTEM:
         return ActorTypeEnum.SYSTEM
@@ -59,7 +59,7 @@ def _actor_type(role: ActorRoleEnum) -> ActorTypeEnum:
         return ActorTypeEnum.AI
     return ActorTypeEnum.USER
 
-
+#lets say input target = "execution:abc123", output will be  target_type = "execution" target_id = "abc123"
 def _split_target(target: Any) -> tuple[str, str]:
     """'execution:abc' -> ('execution', 'abc'); split on the first ':' only."""
     if not isinstance(target, str) or ":" not in target:
@@ -84,9 +84,9 @@ class AuditService:
 
     def __init__(self, repository: AuditRepository, *, clock: Callable[[], datetime] = _utc_now,
                  new_id: Callable[[], UUID] = uuid4) -> None:
-        self._repository = repository
-        self._clock = clock
-        self._new_id = new_id
+        self._repository = repository #storage used to store the events in a workspace hash chain. It is an instance of AuditRepository, which is a protocol that defines the methods for appending events, getting the head of the chain, and listing events.
+        self._clock = clock #to get tiestamp
+        self._new_id = new_id #to produce UUID
 
     async def log_event(self, *, workspace_id: str, actor: str, role: str, action: str,
                         target: str, source: str, outcome: str, details: dict[str, Any],
@@ -104,10 +104,12 @@ class AuditService:
         audit_action = _enum_value(AuditAction, action, "UNKNOWN_ACTION", "action")
         audit_outcome = _enum_value(OutcomeEnum, outcome, "INVALID_OUTCOME", "outcome")
         actor_role = _enum_value(ActorRoleEnum, role, "INVALID_ROLE", "role")
+        #code below will reject if the actor is not string, empty/whitespace only, too long, contains control characters or '@'.
         if not isinstance(actor, str) or not actor.strip() or len(actor) > 128 \
                 or _CONTROL_RE.search(actor) or "@" in actor:
             raise AuditValidationError("actor must be 1-128 characters, with no control characters or '@'",
                                        code="INVALID_ACTOR")
+        #validate target and split into type and id. The target must be a string in the format "<type>:<id>", where <type> is lowercase letters and underscores, and <id> is alphanumeric characters, underscores, slashes, colons, or hyphens. If the target is invalid, an AuditValidationError is raised.
         target_type, target_id = _split_target(target)
         workspace_uuid = self._workspace_uuid(workspace_id)
         audit_source = _enum_value(AuditSourceEnum, source, "INVALID_SOURCE", "source")
@@ -140,7 +142,8 @@ class AuditService:
                 "previous_hash": GENESIS_HASH if head is None else head.last_hash,
             }
             return AuditEvent(**values, current_hash=compute_event_hash(values))
-
+        #hantar to repository.py to append the event to the workspace hash chain. 
+        #The repository will handle locking and ensure that the event is appended correctly, returning a deep copy of the stored AuditEvent.
         return await self._repository.append(workspace_uuid, build, session=session)
 
     def _now(self) -> datetime:

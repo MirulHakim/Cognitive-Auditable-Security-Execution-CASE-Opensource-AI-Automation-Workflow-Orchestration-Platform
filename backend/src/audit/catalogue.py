@@ -24,7 +24,9 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, Strict
 
 from .schemas import HASH_PATTERN, AuditEventTypeEnum
 
-
+#list of all actions that can be logged in the audit trail. 
+#each action is associated with an event type and may have required details that must be provided when logging the action. 
+#contoh nak guna nanti: AuditAction.JOB_RECEIVED, AuditAction.MESSAGE_STANDARDIZED, AuditAction.AI_TEMPLATE_SELECTED, AuditAction.GATE1_APPROVED, AuditAction.EXECUTION_STARTED, AuditAction.DOCUMENT_GENERATED, AuditAction.INTEGRATION_CONNECTED, AuditAction.ACCESS_FORBIDDEN, AuditAction.AUDIT_INTEGRITY_VERIFIED
 class AuditAction(str, Enum):
     # Ingress
     JOB_RECEIVED = "JOB_RECEIVED"
@@ -82,6 +84,7 @@ class AuditAction(str, Enum):
 A = AuditAction
 T = AuditEventTypeEnum
 
+#will map the action into event type
 EVENT_TYPES: Mapping[AuditAction, AuditEventTypeEnum] = {
     A.JOB_RECEIVED: T.SYSTEM_ACTION,
     A.INGRESS_REJECTED_NOT_WHITELISTED: T.SECURITY_EVENT,
@@ -90,7 +93,7 @@ EVENT_TYPES: Mapping[AuditAction, AuditEventTypeEnum] = {
     A.STANDARDIZATION_FAILED: T.SYSTEM_ACTION,
     A.DATA_STANDARDIZED: T.SYSTEM_ACTION,
     A.AI_TEMPLATE_SELECTED: T.AI_DECISION,
-    A.AI_TEMPLATE_NO_MATCH: T.AI_DECISION,
+    A.AI_TEMPLATE_NO_MATCH: T.AI_DECISION,  
     A.AI_TEMPLATE_DRAFTED: T.AI_DECISION,
     A.AI_CONTENT_GENERATED: T.AI_DECISION,
     A.TEMPLATE_MANUALLY_SELECTED: T.USER_ACTION,
@@ -126,11 +129,21 @@ EVENT_TYPES: Mapping[AuditAction, AuditEventTypeEnum] = {
     A.PROVENANCE_RECORDED: T.INTEGRITY_EVENT,
 }
 
-FINAL_STATUSES: tuple[str, ...] = ("DELIVERED", "REJECTED_GATE1", "REJECTED_GATE2", "UNSUPPORTED", "FAILED")
-FinalStatus = Literal["DELIVERED", "REJECTED_GATE1", "REJECTED_GATE2", "UNSUPPORTED", "FAILED"]
+#final status: end of execution, either success or failure. 
+FINAL_STATUSES: tuple[str, ...] = ("DELIVERED", 
+                                   "REJECTED_GATE1", 
+                                   "REJECTED_GATE2", 
+                                   "UNSUPPORTED", 
+                                   "FAILED")
+FinalStatus = Literal["DELIVERED", 
+                      "REJECTED_GATE1", 
+                      "REJECTED_GATE2", 
+                      "UNSUPPORTED", 
+                      "FAILED"]
 
 # Gate order (§3 rule 12, §8.5 check 7): each action may appear only after the
 # named gate approval for the same request. Used by verify_lineage in Phase 4.
+#map A to B. meaning tht A can only be logged after B has been logged for the same request. B MUST RUN FIRST.
 REQUIRED_PRIOR_GATE: Mapping[AuditAction, AuditAction] = {
     A.EXECUTION_STARTED: A.GATE1_APPROVED,
     A.ATTACHMENT_EXTRACTED: A.GATE1_APPROVED,
@@ -145,10 +158,13 @@ REQUIRED_PRIOR_GATE: Mapping[AuditAction, AuditAction] = {
 # both case-insensitive. Whole-key, not substring, so required keys such as
 # `content_hash` and `prompt_hash` stay valid.
 # ---------------------------------------------------------------------------
+#list keys yang forbidden untuk dimasukkan ke dalam details of audit event
 FORBIDDEN_KEYS: frozenset[str] = frozenset({
     "body", "body_text", "content", "raw", "prompt", "prompt_text",
     "password", "token", "secret", "api_key", "credentials",
 })
+#list suffixes yang forbidden untuk dimasukkan ke dalam details of audit event
+#contoh: if key is "user_password" or "api_key", it will be forbidden
 FORBIDDEN_SUFFIXES: tuple[str, ...] = ("_token", "_secret", "_password", "_api_key", "_credentials")
 
 
@@ -178,6 +194,7 @@ def find_forbidden_keys(value: Any, path: str = "$") -> list[str]:
 # and size. The models only validate - the stored details are what the caller
 # sent, so no defaults are ever added to the hashed record.
 # ---------------------------------------------------------------------------
+#determine type of data, its length, and its format for each required details of an action.
 Hash = Annotated[StrictStr, Field(pattern=HASH_PATTERN)]
 Count = Annotated[StrictInt, Field(ge=0)]
 Id = Annotated[StrictStr, Field(min_length=1, max_length=128)]
@@ -190,6 +207,8 @@ Version = Union[Annotated[StrictStr, Field(min_length=1, max_length=64)], Annota
 # Details hold plain JSON strings, and strict mode does not accept a string for an Enum field.
 SourceName = Literal["GMAIL", "TELEGRAM", "WEB_FORM", "WEB_APP", "SYSTEM", "REST_API", "JSON_FILE", "EMAIL_SERVICE"]
 
+#classes here are to determine the required details for each action. 
+#The required details for each action are defined as attributes of the corresponding class, with their types and constraints specified using Pydantic's Field and Annotated types.
 
 class _Details(BaseModel):
     model_config = ConfigDict(extra="allow", strict=True)
@@ -270,7 +289,8 @@ class ExecutionTemplateModifiedDetails(_Details):
     content_hash: Hash
     changed_fields: list[FieldName]
 
-
+#to know which version of the template is approved or rejected
+#we need to store the revision number and the hash of the approved template.
 class Gate1ApprovedDetails(_Details):
     revision: Count
     approved_template_hash: Hash
@@ -326,7 +346,9 @@ class ProvenanceRecordedDetails(_Details):
     record_hash: Hash
 
 
-# Actions not listed here take free-form details (still checked for forbidden keys and size).
+#Actions not listed here take free-form details (still checked for forbidden keys and size).
+#nak determine which details class to use for each action
+#the caller can validate the details before logging the event.
 REQUIRED_DETAILS: Mapping[AuditAction, type[BaseModel]] = {
     A.MESSAGE_STANDARDIZED: MessageStandardizedDetails,
     A.STANDARDIZATION_FAILED: StandardizationFailedDetails,
