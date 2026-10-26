@@ -75,7 +75,10 @@ class AuditRepository(Protocol):
     async def get_head(self, workspace_id: UUID) -> Optional[ChainHead]: ...
 
     async def list_events(self, workspace_id: UUID, *, from_seq: int | None = None,
-                          to_seq: int | None = None) -> tuple[AuditEvent, ...]: ...
+                          to_seq: int | None = None, limit: int | None = None) -> tuple[AuditEvent, ...]:
+        """Events with from_seq <= seq <= to_seq, ordered by seq, at most `limit`
+        of them (the verifier reads in batches of 1,000)."""
+        ...
 
 #nak validate that a newly built audit event correctly
 #continues the current workspace hash chain.
@@ -96,8 +99,8 @@ class InMemoryAuditRepository:
     """In-process storage with one asyncio.Lock per workspace.
 
     Reads return deep copies, never the internal lists, so nothing outside
-    this class can change a stored event by accident. (Phase 2 tamper tests
-    reach the internal storage explicitly.)
+    this class can change a stored event by accident. (The tamper tests in
+    tests/audit/test_verifier.py reach `_events` / `_heads` explicitly.)
 
     `session` is accepted for interface compatibility and ignored: there are
     no transactions here. Commit/rollback behaviour is tested against
@@ -135,12 +138,17 @@ class InMemoryAuditRepository:
         return self._heads.get(workspace_id)
 
     async def list_events(self, workspace_id: UUID, *, from_seq: int | None = None,
-                          to_seq: int | None = None) -> tuple[AuditEvent, ...]:
-        return tuple(
-            event.model_copy(deep=True)
-            for event in self._events.get(workspace_id, ())
-            if (from_seq is None or event.seq >= from_seq) and (to_seq is None or event.seq <= to_seq)
+                          to_seq: int | None = None, limit: int | None = None) -> tuple[AuditEvent, ...]:
+        # Sorted by seq like the Postgres query (ORDER BY seq): storage order is not
+        # evidence, so a tamper test that swaps rows has to change their seq values.
+        selected = sorted(
+            (event for event in self._events.get(workspace_id, ())
+             if (from_seq is None or event.seq >= from_seq) and (to_seq is None or event.seq <= to_seq)),
+            key=lambda event: event.seq,
         )
+        if limit is not None:
+            selected = selected[:limit]
+        return tuple(event.model_copy(deep=True) for event in selected)
 
 
 __all__ = ["ChainHead", "EventBuilder", "AuditRepository", "InMemoryAuditRepository"]

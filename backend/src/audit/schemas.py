@@ -4,8 +4,9 @@ Schemas
 
 Location: src/audit/schemas.py
 
-Section 3 (the audit event) follows AUDIT_MODULE_PLAN.md §5.1 since Phase 1.
-Sections 4-6 were moved unchanged from src/secure_api/schemas.py in Phase 0
+Section 3 (the audit event) follows AUDIT_MODULE_PLAN.md §5.1 since Phase 1,
+section 4 (verification result) follows §5.5 since Phase 2.
+Sections 5-6 were moved unchanged from src/secure_api/schemas.py in Phase 0
 and are revised in the phase that uses them (see the TODO on each section).
 """
 
@@ -159,46 +160,69 @@ class AuditTimelineResponse(BaseModel):
 
 
 # ============================================================================
-# 4. HASH CHAIN VERIFICATION SCHEMAS
+# 4. HASH CHAIN VERIFICATION (§5.5, §8.3)
 # ============================================================================
-# TODO(Audit Phase 2): replace with the §5.5 verification result (status, head fields).
 
-class VerifyHashChainRequest(BaseModel):
-    """Request: Verify Hash Chain Integrity
-    GET /api/v1/audit/verify?event_id=...&full_chain=true
-    """
-    event_id: Optional[UUID] = None  # if provided, verify single event; else entire chain
-    full_chain: bool = False
+class VerificationStatusEnum(str, Enum):
+    VERIFIED = "VERIFIED"
+    BROKEN = "BROKEN"
 
 
-class HashVerificationStatusEnum(str, Enum):
-    """Hash verification status"""
-    VALID = "VALID"
-    INVALID = "INVALID"
-    BROKEN_CHAIN = "BROKEN_CHAIN"
+# Why the chain is broken. verify_chain stops at the first one it finds.
+class ChainBreakReasonEnum(str, Enum):
+    # Found while walking the events in seq order:
+    GAP = "GAP"                                  # a seq number is missing (record deleted)
+    DUPLICATE_SEQ = "DUPLICATE_SEQ"              # seq repeats or goes backwards (Postgres UNIQUE prevents this)
+    LINK_BROKEN = "LINK_BROKEN"                  # previous_hash != the prior record's current_hash (prior record changed and re-hashed)
+    RECORD_MODIFIED = "RECORD_MODIFIED"          # recomputed hash != stored current_hash
+    # Found by comparing with the chain head (§5.3):
+    TAIL_TRUNCATED = "TAIL_TRUNCATED"            # head says more records exist than were found
+    INSERTED_OUTSIDE_LOG_EVENT = "INSERTED_OUTSIDE_LOG_EVENT"  # a record exists after the head
+    HEAD_MISMATCH = "HEAD_MISMATCH"              # same seq as the head, different hash
 
 
-class HashVerificationResult(BaseModel):
-    """Response: Hash Chain Verification Result
-    POST /api/v1/audit/verify
-    """
-    status: HashVerificationStatusEnum
-    is_valid: bool
-    total_events_checked: int
-    broken_at_event_id: Optional[UUID] = None  # if chain broken, which event
-    verification_timestamp: datetime
-    details: Optional[Dict[str, Any]] = None
+class ChainVerificationResult(BaseModel):
+    """One verification run (§5.5). The four head fields are always filled, also
+    when VERIFIED, so the Audit Trail page can show them side by side: a deleted
+    last record shows as head_seq 250 vs last_found_seq 249.
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "status": "VALID",
-                "is_valid": True,
-                "total_events_checked": 1523,
-                "verification_timestamp": "2026-08-20T10:30:00Z",
-                "details": None
-            }
-        }
+    An empty chain has head_seq 0 and head_hash = 64 zeros (the genesis hash);
+    last_found_* follow the same rule when no record was found."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    verification_id: UUID
+    workspace_id: UUID
+    verified_by: str = Field(min_length=1, max_length=128)
+    verified_role: ActorRoleEnum
+    verified_at: datetime
+    #requested range; to_seq None = up to the end of the chain
+    from_seq: int = Field(ge=1)
+    to_seq: Optional[int] = Field(default=None, ge=1)
+    #records read and checked, up to and including the broken one
+    events_checked: int = Field(ge=0)
+    status: VerificationStatusEnum
+    #null when VERIFIED
+    broken_at_seq: Optional[int] = Field(default=None, ge=1)
+    reason: Optional[ChainBreakReasonEnum] = None
+    unverifiable_after: Optional[int] = Field(default=None, ge=0)  # records found after the break (not checked)
+    #chain head used for the comparison, and the last record actually found
+    head_seq: int = Field(ge=0)
+    head_hash: str = Field(pattern=HASH_PATTERN)
+    last_found_seq: int = Field(ge=0)
+    last_found_hash: str = Field(pattern=HASH_PATTERN)
+    duration_ms: int = Field(ge=0)
+
+    @field_validator("verified_at")
+    @classmethod
+    def _utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("verified_at must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+    @property
+    def is_verified(self) -> bool:
+        return self.status is VerificationStatusEnum.VERIFIED
 
 
 # ============================================================================
