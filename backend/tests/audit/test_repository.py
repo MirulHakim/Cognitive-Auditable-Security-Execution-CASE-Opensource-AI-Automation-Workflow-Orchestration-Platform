@@ -49,6 +49,18 @@ class TestChainBuilding:
         assert [e.seq for e in await repo.list_events(UUID(WS), from_seq=4)] == [4, 5]
         assert [e.seq for e in await repo.list_events(UUID(WS), to_seq=1)] == [1]
 
+    async def test_list_events_limit(self, service, repo):
+        for i in range(5):
+            await service.append_event(**event_kwargs(details={"n": i}))
+        assert [e.seq for e in await repo.list_events(UUID(WS), limit=2)] == [1, 2]
+        assert [e.seq for e in await repo.list_events(UUID(WS), from_seq=4, limit=10)] == [4, 5]
+
+    async def test_list_events_ordered_by_seq_not_storage_order(self, service, repo):
+        for i in range(3):
+            await service.append_event(**event_kwargs(details={"n": i}))
+        repo._events[UUID(WS)].reverse()
+        assert [e.seq for e in await repo.list_events(UUID(WS))] == [1, 2, 3]
+
     async def test_builder_that_breaks_the_chain_is_refused(self, service, repo):
         event = await service.append_event(**event_kwargs())
         with pytest.raises(RuntimeError, match="does not continue the chain"):

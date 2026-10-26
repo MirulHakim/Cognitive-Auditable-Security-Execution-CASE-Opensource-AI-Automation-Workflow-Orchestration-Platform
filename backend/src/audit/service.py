@@ -25,7 +25,9 @@ from .canonical import GENESIS_HASH, CanonicalizationError, canonical_json, comp
 from .catalogue import EVENT_TYPES, REQUIRED_DETAILS, AuditAction, find_forbidden_keys
 from .errors import AuditValidationError
 from .repository import AuditRepository, ChainHead
-from .schemas import ActorRoleEnum, ActorTypeEnum, AuditEvent, AuditSourceEnum, OutcomeEnum
+from .schemas import (ActorRoleEnum, ActorTypeEnum, AuditEvent, AuditSourceEnum, ChainVerificationResult,
+                      OutcomeEnum)
+from . import verifier
 
 if TYPE_CHECKING:
     # psycopg is added in Audit Phase 3; only needed for the type hint.
@@ -58,6 +60,13 @@ def _actor_type(role: ActorRoleEnum) -> ActorTypeEnum:
     if role is ActorRoleEnum.AI:
         return ActorTypeEnum.AI
     return ActorTypeEnum.USER
+
+#reject if the actor is not string, empty/whitespace only, too long, contains control characters or '@'.
+def _check_actor(actor: Any) -> None:
+    if not isinstance(actor, str) or not actor.strip() or len(actor) > 128 \
+            or _CONTROL_RE.search(actor) or "@" in actor:
+        raise AuditValidationError("actor must be 1-128 characters, with no control characters or '@'",
+                                   code="INVALID_ACTOR")
 
 #lets say input target = "execution:abc123", output will be  target_type = "execution" target_id = "abc123"
 def _split_target(target: Any) -> tuple[str, str]:
@@ -104,11 +113,7 @@ class AuditService:
         audit_action = _enum_value(AuditAction, action, "UNKNOWN_ACTION", "action")
         audit_outcome = _enum_value(OutcomeEnum, outcome, "INVALID_OUTCOME", "outcome")
         actor_role = _enum_value(ActorRoleEnum, role, "INVALID_ROLE", "role")
-        #code below will reject if the actor is not string, empty/whitespace only, too long, contains control characters or '@'.
-        if not isinstance(actor, str) or not actor.strip() or len(actor) > 128 \
-                or _CONTROL_RE.search(actor) or "@" in actor:
-            raise AuditValidationError("actor must be 1-128 characters, with no control characters or '@'",
-                                       code="INVALID_ACTOR")
+        _check_actor(actor)
         #validate target and split into type and id. The target must be a string in the format "<type>:<id>", where <type> is lowercase letters and underscores, and <id> is alphanumeric characters, underscores, slashes, colons, or hyphens. If the target is invalid, an AuditValidationError is raised.
         target_type, target_id = _split_target(target)
         workspace_uuid = self._workspace_uuid(workspace_id)
@@ -145,6 +150,42 @@ class AuditService:
         #hantar to repository.py to append the event to the workspace hash chain. 
         #The repository will handle locking and ensure that the event is appended correctly, returning a deep copy of the stored AuditEvent.
         return await self._repository.append(workspace_uuid, build, session=session)
+
+    async def verify_chain(self, workspace_id: str, *, actor: str, role: str,
+                           from_seq: int | None = None, to_seq: int | None = None,
+                           source: str = "WEB_APP") -> ChainVerificationResult:
+        """Run verifier.verify_chain (§8.3) and log the result as
+        AUDIT_INTEGRITY_VERIFIED or AUDIT_INTEGRITY_FAILED (§5.5).
+
+        The result describes the chain as it was before this log event was
+        added. If the log write fails the error is raised; the read API
+        (Phase 5) decides how to report it.
+        """
+        # TODO(Audit Phase 3): also store the result in hash_chain_verifications.
+        actor_role = _enum_value(ActorRoleEnum, role, "INVALID_ROLE", "role")
+        _check_actor(actor)
+        workspace_uuid = self._workspace_uuid(workspace_id)
+        _enum_value(AuditSourceEnum, source, "INVALID_SOURCE", "source")
+
+        result = await verifier.verify_chain(self._repository, workspace_uuid, from_seq=from_seq, to_seq=to_seq,
+                                             verified_by=actor, verified_role=actor_role.value,
+                                             clock=self._now, new_id=self._new_id)
+
+        details: dict[str, Any] = {
+            "verification_id": str(result.verification_id),
+            "events_checked": result.events_checked,
+            "head_seq": result.head_seq,
+            "head_hash": result.head_hash,
+        }
+        if result.is_verified:
+            action, outcome = AuditAction.AUDIT_INTEGRITY_VERIFIED, OutcomeEnum.SUCCESS
+        else:
+            action, outcome = AuditAction.AUDIT_INTEGRITY_FAILED, OutcomeEnum.FAILURE
+            details.update(broken_at_seq=result.broken_at_seq, reason=result.reason.value)
+        await self.log_event(workspace_id=str(workspace_uuid), actor=actor, role=actor_role.value,
+                             action=action.value, target=f"workspace:{workspace_uuid}", source=source,
+                             outcome=outcome.value, details=details)
+        return result
 
     def _now(self) -> datetime:
         now = self._clock()
