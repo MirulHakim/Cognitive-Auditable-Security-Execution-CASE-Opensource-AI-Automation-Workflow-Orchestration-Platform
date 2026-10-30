@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.secure_api import router
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, START, END
@@ -29,6 +30,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# =====================================================================
+# REGISTER SECURE API ROUTES (Task 2.2 - Sprint 2)
+# =====================================================================
+app.include_router(router)
 
 
 # =====================================================================
@@ -150,7 +156,7 @@ def create_job(request: CreateJobRequest):
 
     # Fetch paused state info
     current_state = graph_app.get_state(config)
-    
+
     return {
         "status": "PAUSED_AT_GATE_1",
         "thread_id": thread_id,
