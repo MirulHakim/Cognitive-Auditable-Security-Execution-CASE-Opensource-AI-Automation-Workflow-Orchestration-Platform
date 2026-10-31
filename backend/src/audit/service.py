@@ -30,7 +30,6 @@ from .schemas import (ActorRoleEnum, ActorTypeEnum, AuditEvent, AuditSourceEnum,
 from . import verifier
 
 if TYPE_CHECKING:
-    # psycopg is added in Audit Phase 3; only needed for the type hint.
     from psycopg import AsyncConnection
 
 MAX_DETAILS_BYTES = 8 * 1024
@@ -154,14 +153,14 @@ class AuditService:
     async def verify_chain(self, workspace_id: str, *, actor: str, role: str,
                            from_seq: int | None = None, to_seq: int | None = None,
                            source: str = "WEB_APP") -> ChainVerificationResult:
-        """Run verifier.verify_chain (§8.3) and log the result as
-        AUDIT_INTEGRITY_VERIFIED or AUDIT_INTEGRITY_FAILED (§5.5).
+        """Run verifier.verify_chain (§8.3), store the result in
+        hash_chain_verifications and log it as AUDIT_INTEGRITY_VERIFIED or
+        AUDIT_INTEGRITY_FAILED (§5.5), both in one transaction.
 
         The result describes the chain as it was before this log event was
-        added. If the log write fails the error is raised; the read API
-        (Phase 5) decides how to report it.
+        added. If storing or logging fails, neither is saved and the error is
+        raised; the read API (Phase 5) decides how to report it.
         """
-        # TODO(Audit Phase 3): also store the result in hash_chain_verifications.
         actor_role = _enum_value(ActorRoleEnum, role, "INVALID_ROLE", "role")
         _check_actor(actor)
         workspace_uuid = self._workspace_uuid(workspace_id)
@@ -182,9 +181,12 @@ class AuditService:
         else:
             action, outcome = AuditAction.AUDIT_INTEGRITY_FAILED, OutcomeEnum.FAILURE
             details.update(broken_at_seq=result.broken_at_seq, reason=result.reason.value)
-        await self.log_event(workspace_id=str(workspace_uuid), actor=actor, role=actor_role.value,
-                             action=action.value, target=f"workspace:{workspace_uuid}", source=source,
-                             outcome=outcome.value, details=details)
+        # Result row and its log event are saved together or not at all.
+        async with self._repository.transaction() as tx:
+            await self._repository.save_verification(result, session=tx)
+            await self.log_event(workspace_id=str(workspace_uuid), actor=actor, role=actor_role.value,
+                                 action=action.value, target=f"workspace:{workspace_uuid}", source=source,
+                                 outcome=outcome.value, details=details, session=tx)
         return result
 
     def _now(self) -> datetime:

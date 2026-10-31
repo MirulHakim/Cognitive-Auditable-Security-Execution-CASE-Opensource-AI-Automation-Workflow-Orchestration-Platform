@@ -22,7 +22,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
-    # psycopg is added in Audit Phase 3; only needed for the type hint.
+    # Only needed for the type hint; port.py stays free of runtime imports.
     from psycopg import AsyncConnection
 
 # AuditLogger is a protocol so that any class with a log_event method can be used as an AuditLogger.
