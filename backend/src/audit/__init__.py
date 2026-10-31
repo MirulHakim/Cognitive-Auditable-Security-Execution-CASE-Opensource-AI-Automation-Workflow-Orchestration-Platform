@@ -8,7 +8,7 @@ See docs/audit/AUDIT_MODULE_PLAN.md.
 from .catalogue import AuditAction
 from .errors import AuditValidationError
 from .port import AuditLogger, MemoryAuditLogger, NullAuditLogger
-from .repository import AuditRepository, ChainHead, InMemoryAuditRepository
+from .repository import AuditRepository, ChainHead, InMemoryAuditRepository, PostgresAuditRepository
 from .schemas import AuditEvent, ChainBreakReasonEnum, ChainVerificationResult, VerificationStatusEnum
 from .service import AuditService
 from .verifier import verify_chain
@@ -28,4 +28,5 @@ __all__ = [
     "InMemoryAuditRepository",
     "MemoryAuditLogger",
     "NullAuditLogger",
+    "PostgresAuditRepository",
 ]
