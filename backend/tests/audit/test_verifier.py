@@ -372,6 +372,20 @@ class TestServiceVerify:
             assert (await service.verify_chain(WS, actor="u-7", role="AUDITOR")).is_verified
         assert (await verify(repo)).events_checked == 5
 
+    async def test_results_are_stored_newest_first(self, service, repo):
+        await build_chain(service, 3)
+        first = await service.verify_chain(WS, actor="u-7", role="AUDITOR")
+        delete(repo, 2)
+        second = await service.verify_chain(WS, actor="u-8", role="OPERATOR")
+        assert await repo.list_verifications(UUID(WS)) == (second, first)
+        assert await repo.list_verifications(UUID(WS), limit=1) == (second,)
+        assert await repo.list_verifications(UUID(WS_OTHER)) == ()
+
+    async def test_bad_input_is_not_stored(self, service, repo):
+        with pytest.raises(AuditValidationError):
+            await service.verify_chain(WS, actor="u-7", role="ROOT")
+        assert await repo.list_verifications(UUID(WS)) == ()
+
     async def test_system_caller(self, service, repo):
         await service.verify_chain(WS, actor="system", role="SYSTEM", source="SYSTEM")
         logged = (await repo.list_events(UUID(WS)))[-1]

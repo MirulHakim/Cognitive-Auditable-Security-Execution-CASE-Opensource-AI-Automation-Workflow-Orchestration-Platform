@@ -1,0 +1,31 @@
+# CASE — local development services
+#
+#   docker compose up -d      start Postgres in the background
+#   docker compose down       stop it (data is kept in the volume)
+#   docker compose down -v    stop it AND delete all data (fresh start)
+#
+# Connection URLs (development passwords, see backend/db/init/01_roles.sql):
+#   app:        postgresql://case_app:case_app_dev@localhost:5432/case_dev
+#   migrations: postgresql://case_owner:case_owner_dev@localhost:5432/case_dev
+#   superuser:  postgresql://postgres:postgres@localhost:5432/postgres   (tests only)
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: case-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - case-pgdata:/var/lib/postgresql/data
+      - ./backend/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  case-pgdata:
