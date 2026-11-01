@@ -25,7 +25,7 @@ The Audit module is CASE's independent evidence service. Other modules decide wh
 | 6. Plug in | Connect Standardization, Ingress, Integrations, Workflow Engine | to do, with Samantha and Amirul |
 
 ---
-
+# REFERENCE FOR AMIRUL AND SAMANTHA :)
 ## Using Audit from your module
 
 ### 1. Take an `AuditLogger`, don't create one
