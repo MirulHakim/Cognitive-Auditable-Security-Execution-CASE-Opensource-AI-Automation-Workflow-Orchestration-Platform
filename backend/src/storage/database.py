@@ -86,6 +86,7 @@ class Database:
         async with self._pool.connection() as conn:
             yield conn
 
+    ##"All or nothing": if anything fails, everything inside is cancelled (rollback). This is what makes pattern A work
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[AsyncConnection]:
         """Borrow a connection inside BEGIN ... COMMIT; ROLLBACK if the block raises."""

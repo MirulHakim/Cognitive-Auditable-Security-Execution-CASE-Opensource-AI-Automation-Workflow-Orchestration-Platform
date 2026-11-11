@@ -1,14 +1,18 @@
--- CASE — Audit & Transparency Layer
--- 003: what the app role may do (AUDIT_MODULE_PLAN.md §6 role split)
+-- CASE — Audit module
+-- 003: what the app is allowed to do with the audit tables
 --
--- Two database roles:
---   case_owner  owns the tables, runs these migrations. Not used by the app.
---   case_app    the app connects as this. It is not the owner, so it cannot
---               ALTER TABLE ... DISABLE TRIGGER or DROP the tables.
--- Both roles are created once per Postgres server (backend/db/init/01_roles.sql).
+-- There are 2 database users:
+--   case_owner = the OWNER of the tables. Only used to create the tables (migrations).
+--   case_app   = the user our app logs in as.
 --
--- case_app gets no UPDATE/DELETE/TRUNCATE on the evidence tables at all:
--- that is a second wall in front of the triggers in 002.
+-- Why not let the app use case_owner?
+-- Because the owner can switch off the triggers in 002 or delete the tables.
+-- If someone hacks the app, they would get that power too.
+-- case_app is not the owner, so it can't do that.
+--
+-- Below we give case_app only what it needs: read (SELECT) and add (INSERT).
+-- It gets NO permission to change (UPDATE) or delete (DELETE / TRUNCATE) records.
+-- So even before the triggers in 002 run, the database already says "permission denied".
 
 GRANT SELECT, INSERT ON audit_events, provenance_records, hash_chain_verifications, audit_exports TO case_app;
 

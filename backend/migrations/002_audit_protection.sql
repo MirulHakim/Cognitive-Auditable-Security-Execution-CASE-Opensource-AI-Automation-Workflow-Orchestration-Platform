@@ -1,15 +1,15 @@
 -- CASE — Audit & Transparency Layer
 -- 002: protection triggers (AUDIT_MODULE_PLAN.md §3 rule 1, §6)
 --
--- A trigger is a rule the database runs by itself on every matching
--- statement, whoever sends it. These ones refuse any change to stored
--- evidence, also for the table owner. (Only the owner or a superuser could
--- disable them, and the app does not connect as either; see 003.)
+-- A trigger is a rule the database runs by itself on every matching statement, whoever sends it. 
+-- These ones refuse any change to stored evidence, also for the table owner. 
+-- (Only the owner or a superuser could disable them, and the app does not connect as either; see 003.)
 
 -- ---------------------------------------------------------------------------
 -- Append-only: audit_events and provenance_records accept INSERT only.
 -- Corrections are new events, never edits (§3 rule 1).
 -- ---------------------------------------------------------------------------
+--  untuk bagi exception error je bila line 22/line 25, line 30 etc trigger
 CREATE FUNCTION audit_reject_change() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -18,6 +18,7 @@ END;
 $$;
 
 -- Row triggers do not fire on TRUNCATE, so each table gets a statement trigger for it too.
+-- truncate means delete all rows which is forbidden
 CREATE TRIGGER audit_events_no_update_delete
     BEFORE UPDATE OR DELETE ON audit_events
     FOR EACH ROW EXECUTE FUNCTION audit_reject_change();
@@ -40,6 +41,7 @@ CREATE FUNCTION audit_check_head_advance() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
     IF TG_OP = 'INSERT' THEN
+    -- <> means not equal to in SQL, so if the new last_seq is not equal to 1, raise an exception
         IF NEW.last_seq <> 1 THEN
             RAISE EXCEPTION 'a new chain head must start at seq 1 (got %)', NEW.last_seq;
         END IF;
@@ -49,7 +51,9 @@ BEGIN
         END IF;
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM audit_events
+-- For INSERT or UPDATE: the head must point to a real event.
+-- An event with the same workspace_id, seq and current_hash must already exist in audit_events, so the head cannot point to a fake or wrong hash.
+    IF NOT EXISTS (SELECT 1 FROM audit_events --biasa kita guna select * from table, but here we guna select 1 je sebab kita nak check existence je, tak perlu ambik semua column
                    WHERE workspace_id = NEW.workspace_id
                      AND seq = NEW.last_seq
                      AND current_hash = NEW.last_hash) THEN

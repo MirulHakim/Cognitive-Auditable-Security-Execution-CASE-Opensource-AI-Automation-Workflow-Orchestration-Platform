@@ -29,7 +29,7 @@ CREATE TABLE audit_events (
     details         jsonb       NOT NULL,
     previous_hash   char(64)    NOT NULL CHECK (previous_hash ~ '^[0-9a-f]{64}$'),
     current_hash    char(64)    NOT NULL CHECK (current_hash ~ '^[0-9a-f]{64}$'),
-    -- One seq per workspace: two events can never take the same place in a chain.
+    -- one seq per workspace: two events can never take the same place in a chain.
     -- Also the index used to read a chain in seq order.
     CONSTRAINT audit_events_workspace_seq_key UNIQUE (workspace_id, seq)
 );
@@ -93,6 +93,9 @@ CREATE TABLE hash_chain_verifications (
     last_found_hash    char(64)    NOT NULL,
     duration_ms        integer     NOT NULL,
     -- A BROKEN result always says where and why; a VERIFIED one never does.
+    -- this check is comparison of booleans (yes or no)
+    -- left question: is status VERIFIED? right question: are broken_at_seq and reason both NULL?
+    -- '=' means both sides must be the same (both true or both false), tak boleh contradict to each other
     CHECK ((status = 'VERIFIED') = (broken_at_seq IS NULL AND reason IS NULL))
 );
 

@@ -6,7 +6,10 @@
 --
 -- The passwords are for local development only. Real deployments set their own.
 
+--tuan rumah
 CREATE ROLE case_owner LOGIN PASSWORD 'case_owner_dev';   -- owns the tables, runs migrations
+
+--penyewa rumah (CASE punya app)
 CREATE ROLE case_app   LOGIN PASSWORD 'case_app_dev';     -- the app connects as this
 
 -- "case" is an SQL keyword, hence case_dev. Tests create their own case_test.

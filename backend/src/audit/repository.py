@@ -21,36 +21,36 @@ the advisory lock plus `SELECT ... FOR UPDATE`, inside one transaction (§8.1).
 # Helps detect tail truncation during integrity verification.
 #
 # AuditRepository:
-# Defines the repository interface (append, get_head, list_events).
-# Allows different storage implementations using the same contract.
+# The "contract": any storage must have append, get_head, list_events, ...
+# The service only talks to this contract, so we can swap the storage
+# without changing service.py, verifier.py or canonical.py.
 #
-# InMemoryAuditRepository.append():
-# 1. Acquire the workspace lock.
-# 2. Read the latest chain head.
-# 3. Yield to the event loop (simulates database latency).
-# 4. Call build(head) to construct the next audit event.
-# 5. Validate sequence and previous_hash using check_links().
-# 6. Store the event.
-# 7. Update the chain head.
-# 8. Release the lock and return a deep copy.
+# Why 2 versions?
+#   InMemoryAuditRepository  = unit tests je (fast, no Docker needed)
+#   PostgresAuditRepository  = the real system (needs the database)
+#
+# append() does the SAME 5 steps in both versions:
+#   1. Take the key for this workspace (one writer at a time, others wait)
+#   2. Read the head (last seq + last hash)
+#   3. build(head) -> the new event (next seq, previous hash copied in)
+#   4. check_links() -> double-check it links correctly
+#   5. Save the event, then move the head
+#
+# The only difference is the "key":
+#   In memory : asyncio.Lock      (works inside one Python program only)
+#   Postgres  : pg_advisory_xact_lock + SELECT ... FOR UPDATE
+#               (works for every program using the same database;
+#                key is given back automatically at COMMIT / ROLLBACK)
 #
 # Why lock?
-# Prevents concurrent requests from creating duplicate sequence
-# numbers or building events from the same previous hash.
+# Without it, 2 requests could both read "last = 7" and both write seq 8.
 #
-# Why deep copy?
-# Prevents callers from accidentally modifying stored events.
+# Why deep copy? (in-memory only)
+# So the caller cannot accidentally change a stored event.
 #
-# PostgresAuditRepository.append() (Phase 3) - same steps, in the database:
-# 1. Use the caller's transaction (session) or open a new one.
-# 2. pg_advisory_xact_lock(workspace): the database version of the workspace
-#    lock. Other transactions for the same workspace wait here until this one
-#    commits or rolls back. Works across processes, not only inside one Python.
-# 3. SELECT the head ... FOR UPDATE (also locks the head row).
-# 4. build(head) + check_links(), exactly like in memory.
-# 5. INSERT the event, then INSERT/UPDATE the head (002 trigger checks it).
-# 6. Commit only if step 1 opened the transaction; with a session the caller
-#    commits, so the event and the caller's change are saved together (pattern A).
+# Pattern A (Postgres only):
+# If the caller passes session=tx, append() uses the caller's transaction and
+# does NOT commit. The caller commits, so their change + the event are saved together.
 
 from __future__ import annotations
 
@@ -87,6 +87,7 @@ EventBuilder = Callable[[Optional[ChainHead]], AuditEvent]
 
 
 class AuditRepository(Protocol):
+    # transaction() added in Phase 3, to allow PostgresAuditRepository to be used in the service
     def transaction(self) -> AbstractAsyncContextManager[AsyncConnection | None]:
         """A transaction owned by Audit: pass what it yields as `session` to several
         writes so they are saved together (e.g. a verification result and its log event)."""
@@ -102,12 +103,12 @@ class AuditRepository(Protocol):
         """Events with from_seq <= seq <= to_seq, ordered by seq, at most `limit`
         of them (the verifier reads in batches of 1,000)."""
         ...
-
+    # save_verification() is added in Phase 3,to store verify_chain results (hash_chain_verifications, §5.5). The service calls it
     async def save_verification(self, result: ChainVerificationResult, *,
                                 session: AsyncConnection | None = None) -> None:
         """Store one verify_chain result (hash_chain_verifications, §5.5)."""
         ...
-
+    # list_verification() is added in Phase 3,to read them back (the service shows the last 10 in the workspace audit log). Phase 5 will use it
     async def list_verifications(self, workspace_id: UUID, *,
                                  limit: int | None = None) -> tuple[ChainVerificationResult, ...]:
         """Stored verification results, newest first."""
@@ -157,6 +158,7 @@ class InMemoryAuditRepository:
             lock = self._locks[workspace_id] = asyncio.Lock()
         return lock
 
+    # added in Phase 3, to allow the service to use the same interface for both InMemory and Postgres repositories
     async def append(self, workspace_id: UUID, build: EventBuilder, *,
                      session: AsyncConnection | None = None) -> AuditEvent:
         async with self._lock(workspace_id): #lock workspace_id, request lain untuk same workspace kena tunggu
@@ -267,32 +269,35 @@ class PostgresAuditRepository:
 
     async def append(self, workspace_id: UUID, build: EventBuilder, *,
                      session: AsyncConnection | None = None) -> AuditEvent:
+        # Use the caller's transaction if given (pattern A), otherwise open our own.
         async with self._use(session) as conn:
-            # Lock key = a 64-bit hash of the workspace id. Two workspaces sharing
-            # a key would only wait for each other; they still get separate chains.
-            # The lock is released automatically at COMMIT or ROLLBACK.
+            # STEP 1: take the key for this workspace.
+            # Only one request can write at a time; the others wait in line.
+            # The key is given back automatically when the transaction ends.
             await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s::text, 0))",
                                (str(workspace_id),))
-            # The advisory lock is what serialises writers, including the very first
-            # event (there is no head row to lock yet). FOR UPDATE also locks the head
-            # row against anything that does not take the advisory lock.
+            # STEP 2: read the head (last seq + last hash). None = first event ever.
+            # FOR UPDATE = extra lock on the head row while we use it.
             rows = await _fetch_all(conn, "SELECT workspace_id, last_seq, last_hash, updated_at "
                                           "FROM audit_chain_heads WHERE workspace_id = %s FOR UPDATE",
                                     (workspace_id,))
             head = ChainHead(**rows[0]) if rows else None
 
+            # STEP 3: build the new event (next seq, previous hash copied in).
             event = build(head)
+            # STEP 4: double-check it links correctly to the head.
             check_links(workspace_id, head, event)
 
-            # Event first, then head: the head trigger checks that the event exists.
+            # STEP 5: save the event FIRST, then move the head.
+            # (Order matters: the 002 trigger (from backend\migrations\002_audit_protection) only accepts a head that points to a saved event.)
             await conn.execute(_INSERT_EVENT, _row_values(event))
             head_values = {"workspace_id": workspace_id, "last_seq": event.seq,
                            "last_hash": event.current_hash, "updated_at": event.event_timestamp}
-            if head is None:
+            if head is None:  # first event: create the head
                 await conn.execute("INSERT INTO audit_chain_heads (workspace_id, last_seq, last_hash, updated_at) "
                                    "VALUES (%(workspace_id)s, %(last_seq)s, %(last_hash)s, %(updated_at)s)",
                                    head_values)
-            else:
+            else:  # later events: move the head forward by one
                 await conn.execute("UPDATE audit_chain_heads SET last_seq = %(last_seq)s, "
                                    "last_hash = %(last_hash)s, updated_at = %(updated_at)s "
                                    "WHERE workspace_id = %(workspace_id)s", head_values)
