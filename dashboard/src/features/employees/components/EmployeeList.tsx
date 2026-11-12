@@ -6,12 +6,11 @@ import {
   FiUserCheck,
   FiEye,
   FiEdit2,
+  FiKey,
   FiUserX,
-  FiUserPlus,
 } from "react-icons/fi";
 import ActionMenu from "../../../components/ActionMenu";
 
-/** UI role labels: the API's "operator" role is shown as "staff". */
 export type UserRole = "admin" | "staff" | "auditor";
 
 export interface Employee {
@@ -21,25 +20,68 @@ export interface Employee {
   role: UserRole;
   avatarInitials: string;
   joinedDate: string;
-  status: "active" | "revoked";
+  status: "active" | "inactive";
 }
 
 interface EmployeeListProps {
   employees?: Employee[];
   onEditRole?: (employee: Employee) => void;
+  onResetPassword?: (employee: Employee) => void;
   onRemoveEmployee?: (id: string) => void;
-  onRestoreEmployee?: (employee: Employee) => void;
   onNavigateToEmployees?: () => void;
 }
 
-// UI-REGION: Team roster — role badge, access status, and the per-row action
-// menu. Access is a whitelist: revoking keeps the row (and its history), so a
-// revoked person can be restored with the same member id.
+// UI-REGION: Employee roster table — avatar, role badge, status, and the
+// per-row action menu (edit role / reset password / remove).
+// TODO[BACKEND]: This defaultEmployees list is only a fallback used when no
+// `employees` prop is passed (Dashboard embed) — the parent should fetch
+// from GET /api/employees and pass the result down instead of relying on
+// this hard-coded roster; the reset-password action should POST
+// /api/employees/:id/reset-password (SSO-managed accounts will not need it).
+const defaultEmployees: Employee[] = [
+  {
+    id: "EMP-001",
+    name: "Amirul Rosazlan",
+    email: "amirul@axiomflow.internal",
+    role: "admin",
+    avatarInitials: "AR",
+    joinedDate: "Jan 2026",
+    status: "active",
+  },
+  {
+    id: "EMP-002",
+    name: "Sarah Chen",
+    email: "sarah.c@axiomflow.internal",
+    role: "staff",
+    avatarInitials: "SC",
+    joinedDate: "Mar 2026",
+    status: "active",
+  },
+  {
+    id: "EMP-003",
+    name: "Marcus Vance",
+    email: "m.vance@auditfirm.com",
+    role: "auditor",
+    avatarInitials: "MV",
+    joinedDate: "Jul 2026",
+    status: "inactive",
+  },
+  {
+    id: "EMP-004",
+    name: "Elena Rostova",
+    email: "elena.r@axiomflow.internal",
+    role: "staff",
+    avatarInitials: "ER",
+    joinedDate: "Aug 2026",
+    status: "active",
+  },
+];
+
 export const EmployeeList: React.FC<EmployeeListProps> = ({
-  employees = [],
+  employees = defaultEmployees,
   onEditRole,
+  onResetPassword,
   onRemoveEmployee,
-  onRestoreEmployee,
   onNavigateToEmployees,
 }) => {
   const [activeMenu, setActiveMenu] = useState<{
@@ -76,6 +118,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
 
   return (
     <div className="w-full bg-surface border border-subtle rounded-xl overflow-hidden shadow-sm">
+      {/* Component Header */}
       <div className="p-4 border-b border-subtle flex items-center justify-between">
         {onNavigateToEmployees ? (
           <button
@@ -85,43 +128,54 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
           >
             <FiUsers className="text-accent-primary w-4 h-4 group-hover:scale-110 transition-transform" />
             <h3 className="text-sm font-semibold tracking-wide group-hover:underline">
-              Team Members &amp; Roles
+              Team Members & Roles
             </h3>
           </button>
         ) : (
           <div className="flex items-center gap-2 text-primary">
             <FiUsers className="text-accent-primary w-4 h-4" />
-            <h3 className="text-sm font-semibold tracking-wide">Team Members &amp; Roles</h3>
+            <h3 className="text-sm font-semibold tracking-wide">
+              Team Members & Roles
+            </h3>
           </div>
         )}
-        <span className="text-xs text-muted">{employees.length} members</span>
+        <span className="text-xs text-muted">
+          {employees.length} Members
+        </span>
       </div>
 
+      {/* Employee Table */}
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="border-b border-subtle text-[11px] uppercase tracking-wider text-muted bg-surface-sunken/30">
-              <th className="py-3 px-4 font-medium">Member ID</th>
+              <th className="py-3 px-4 font-medium">User ID</th>
               <th className="py-3 px-4 font-medium">Employee</th>
               <th className="py-3 px-4 font-medium">Assigned Role</th>
-              <th className="py-3 px-4 font-medium">Access</th>
+              <th className="py-3 px-4 font-medium">Status</th>
+              <th className="py-3 px-4 font-medium">Joined</th>
               <th className="py-3 px-4 font-medium text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-subtle/60 text-xs">
             {employees.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-8 text-center text-faint">
+                <td colSpan={6} className="py-8 text-center text-faint">
                   No members found.
                 </td>
               </tr>
             ) : (
               employees.map((emp) => (
-                <tr key={emp.id} className="hover:bg-surface-sunken/40 transition-colors group">
-                  <td className="py-3 px-4 font-mono text-[10px] text-muted">
-                    {emp.id.length > 14 ? `${emp.id.slice(0, 14)}…` : emp.id}
+                <tr
+                  key={emp.id}
+                  className="hover:bg-surface-sunken/40 transition-colors group"
+                >
+                  {/* ID */}
+                  <td className="py-3 px-4 font-mono text-[11px] text-muted">
+                    {emp.id}
                   </td>
 
+                  {/* Name + Initials Avatar */}
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-3">
                       <div className="w-7 h-7 rounded-full bg-surface-hover border border-strong flex items-center justify-center text-[10px] font-semibold text-secondary">
@@ -131,50 +185,65 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                         <div className="font-medium text-secondary group-hover:text-primary">
                           {emp.name}
                         </div>
-                        <div className="text-[11px] text-faint">{emp.email}</div>
+                        <div className="text-[11px] text-faint">
+                          {emp.email}
+                        </div>
                       </div>
                     </div>
                   </td>
 
+                  {/* Role Badge */}
                   <td className="py-3 px-4">{getRoleBadge(emp.role)}</td>
 
+                  {/* Status Indicator */}
                   <td className="py-3 px-4">
                     <span
-                      className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${
-                        emp.status === "active" ? "text-success" : "text-danger"
+                      className={`inline-flex items-center gap-1.5 text-[11px] font-medium capitalize ${
+                        emp.status === "active"
+                          ? "text-success"
+                          : "text-faint"
                       }`}
                     >
                       <span
                         className={`w-1.5 h-1.5 rounded-full ${
-                          emp.status === "active" ? "bg-success" : "bg-danger"
+                          emp.status === "active"
+                            ? "bg-success"
+                            : "bg-muted"
                         }`}
                       />
-                      {emp.status === "active" ? "Active" : "Access removed"}
+                      {emp.status}
                     </span>
                   </td>
 
+                  {/* Joined Date */}
+                  <td className="py-3 px-4 text-muted">{emp.joinedDate}</td>
+
+                  {/* 3-Dots Action Trigger */}
                   <td className="py-3 px-4 text-right">
-                    {(onEditRole || onRemoveEmployee || onRestoreEmployee) && (
-                      <button
-                        type="button"
-                        aria-label={`Actions for ${emp.name}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (activeMenu?.employee.id === emp.id) {
-                            setActiveMenu(null);
-                            return;
-                          }
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          setActiveMenu({
-                            employee: emp,
-                            position: { top: rect.bottom + 6, left: rect.right - 160 },
-                          });
-                        }}
-                        className="p-1.5 rounded-lg text-muted hover:text-secondary hover:bg-surface-hover transition-colors"
-                      >
-                        <FiMoreVertical className="w-4 h-4 pointer-events-none" />
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      aria-label={`Actions for ${emp.name}`}
+                      data-action-trigger="true"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (activeMenu?.employee.id === emp.id) {
+                          setActiveMenu(null);
+                          return;
+                        }
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const menuWidth = 160;
+                        setActiveMenu({
+                          employee: emp,
+                          position: {
+                            top: rect.bottom + 6,
+                            left: rect.right - menuWidth,
+                          },
+                        });
+                      }}
+                      className="p-1.5 rounded-lg text-muted hover:text-secondary hover:bg-surface-hover transition-colors"
+                    >
+                      <FiMoreVertical className="w-4 h-4 pointer-events-none" />
+                    </button>
                   </td>
                 </tr>
               ))
@@ -183,37 +252,29 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
         </table>
       </div>
 
+      {/* Floating Action Menu */}
       {activeMenu && (
         <ActionMenu
-          isOpen
+          isOpen={Boolean(activeMenu)}
           position={activeMenu.position}
           onClose={() => setActiveMenu(null)}
           options={[
-            ...(activeMenu.employee.role !== "admin" && activeMenu.employee.status === "active"
-              ? [
-                  {
-                    label: "Modify Role",
-                    icon: FiEdit2,
-                    onClick: () => onEditRole?.(activeMenu.employee),
-                  },
-                ]
-              : []),
-            ...(activeMenu.employee.status === "active"
-              ? [
-                  {
-                    label: "Remove Access",
-                    icon: FiUserX,
-                    variant: "danger" as const,
-                    onClick: () => onRemoveEmployee?.(activeMenu.employee.id),
-                  },
-                ]
-              : [
-                  {
-                    label: "Restore Access",
-                    icon: FiUserPlus,
-                    onClick: () => onRestoreEmployee?.(activeMenu.employee),
-                  },
-                ]),
+            {
+              label: "Modify Role",
+              icon: FiEdit2,
+              onClick: () => onEditRole?.(activeMenu.employee),
+            },
+            {
+              label: "Reset Password",
+              icon: FiKey,
+              onClick: () => onResetPassword?.(activeMenu.employee),
+            },
+            {
+              label: "Revoke Access",
+              icon: FiUserX,
+              variant: "danger",
+              onClick: () => onRemoveEmployee?.(activeMenu.employee.id),
+            },
           ]}
         />
       )}

@@ -1,133 +1,164 @@
-import React, { useCallback, useEffect, useState } from "react";
-import {
-  FiLock,
-  FiSearch,
-  FiChevronRight,
-  FiCheckCircle,
-  FiAlertTriangle,
-  FiRefreshCw,
-} from "react-icons/fi";
-import {
-  errorMessage,
-  listAuditEvents,
-  listMembers,
-  verifyAudit,
-} from "../../../api/client";
-import type {
-  AuditEvent,
-  AuditOutcome,
-  AuditVerification,
-  Member,
-} from "../../../api/types";
-import { formatDateTime, humanizeAction, shortHash } from "../../../lib/format";
+import React, { useState } from "react";
+import { FiLock, FiSearch, FiChevronRight, FiCheckCircle } from "react-icons/fi";
+
+// UI-REGION: Audit Trail list — event/job group rows.
+// TODO[BACKEND]: Replace this hard-coded mockAuditEntries array with a data
+// fetch from GET /api/audit (useEffect + setState), returning the paginated
+// audit groups with their hash-chain fields (prev_hash/hash/integrity)
+// straight from PostgreSQL.
+// Mock data shaped exactly like the screenshot
+const mockAuditEntries = [
+  {
+    id: "EVT-00038",
+    type: "single",
+    action: "AUDIT_INTEGRITY_VERIFIED",
+    subtitle: "Mei Ling · Audit chain · single event",
+    records: 1,
+    lastUpdate: "15 Oct, 20:30",
+    outcome: "Success",
+    integrity: "Not checked",
+  },
+  {
+    id: "JOB-1042",
+    type: "group",
+    action: "JOB-1042",
+    tags: [
+      {
+        label: "Gmail",
+        color: "text-danger bg-danger/10 border-danger/20",
+      },
+      {
+        label: "Plan review",
+        dot: true,
+        color: "text-warning border-warning/20",
+      },
+      {
+        label: "Gate 1",
+        outline: true,
+        color: "text-muted border-strong",
+      },
+    ],
+    pipeline: [
+      { step: "OBJECTIVE", value: "Weekly orders summary" },
+      { step: "DECISION", value: "Summary → PDF" },
+      { step: "APPROVAL", value: "Pending" },
+      { step: "RESULT", value: "In progress" },
+    ],
+    records: 3,
+    lastUpdate: "15 Oct, 20:25",
+    outcome: "Success",
+    integrity: "Verified",
+  },
+  {
+    id: "EVT-00034",
+    type: "single",
+    action: "INGRESS_REJECTED_DKIM_FAIL",
+    subtitle: "CASE System · client.ali@abccorp.com · single event",
+    records: 1,
+    lastUpdate: "15 Oct, 20:00",
+    outcome: "Failure",
+    integrity: "Verified",
+  },
+  {
+    id: "JOB-1041",
+    type: "group",
+    action: "JOB-1041",
+    tags: [
+      {
+        label: "Gmail",
+        color: "text-danger bg-danger/10 border-danger/20",
+      },
+      {
+        label: "Final review",
+        dot: true,
+        color: "text-warning border-warning/20",
+      },
+      {
+        label: "Gate 2",
+        outline: true,
+        color: "text-muted border-strong",
+      },
+    ],
+    pipeline: [
+      { step: "OBJECTIVE", value: "Invoice discrepancy" },
+      { step: "DECISION", value: "Flag for manual review" },
+      { step: "APPROVAL", value: "Approved" },
+      { step: "RESULT", value: "Completed" },
+    ],
+    records: 8,
+    lastUpdate: "15 Oct, 19:10",
+    outcome: "Success",
+    integrity: "Verified",
+  },
+];
 
 interface AuditTrailListProps {
-  onSelectRecord: (
-    event: AuditEvent,
-    previous: AuditEvent | null,
-    next: AuditEvent | null,
-  ) => void;
+  onSelectRecord: (id: string) => void;
 }
 
-const OUTCOME_STYLE: Record<AuditOutcome, string> = {
-  SUCCESS: "bg-success/10 text-success border-success/20",
-  FAILURE: "bg-danger/10 text-danger border-danger/20",
-  PENDING: "bg-warning/10 text-warning border-warning/20",
-};
-
-const OUTCOME_LABEL: Record<AuditOutcome, string> = {
-  SUCCESS: "Success",
-  FAILURE: "Failure",
-  PENDING: "Pending",
-};
-
-/**
- * Audit trail — the real, append-only, hash-chained event log served by
- * GET /api/audit. Grouping is dropped: every stored event is one record, and
- * the chain (prev_hash → hash) is what links them.
- */
-export const AuditTrailList: React.FC<AuditTrailListProps> = ({ onSelectRecord }) => {
-  const [events, setEvents] = useState<AuditEvent[]>([]);
-  const [total, setTotal] = useState(0);
-  const [members, setMembers] = useState<Member[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export const AuditTrailList: React.FC<AuditTrailListProps> = ({
+  onSelectRecord,
+}) => {
+  const [viewMode, setViewMode] = useState<"grouped" | "flat">("grouped");
   const [searchQuery, setSearchQuery] = useState("");
-  const [outcome, setOutcome] = useState<"" | AuditOutcome>("");
-  const [verification, setVerification] = useState<AuditVerification | null>(null);
-  const [verifying, setVerifying] = useState(false);
 
-  const load = useCallback(() => {
-    setLoading(true);
-    Promise.all([
-      listAuditEvents({ limit: 100 }),
-      listMembers().catch(() => []),
-    ])
-      .then(([page, memberList]) => {
-        setEvents(page.events);
-        setTotal(page.total);
-        setMembers(memberList);
-        setError(null);
-      })
-      .catch((caught) => setError(errorMessage(caught)))
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const verify = async () => {
-    setVerifying(true);
-    try {
-      setVerification(await verifyAudit());
-    } catch (caught) {
-      setError(errorMessage(caught));
-    } finally {
-      setVerifying(false);
-    }
+  const getOutcomeBadge = (outcome: string) => {
+    const isSuccess = outcome === "Success";
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium border ${
+          isSuccess
+            ? "bg-success/10 text-success border-success/20"
+            : "bg-danger/10 text-danger border-danger/20"
+        }`}
+      >
+        <span
+          className={`w-1.5 h-1.5 rounded-full ${
+            isSuccess ? "bg-success" : "bg-danger"
+          }`}
+        />
+        {outcome}
+      </span>
+    );
   };
 
-  const resolveActor = (id: string): string =>
-    members.find(
-      (member) =>
-        member.id === id || member.email.toLowerCase() === id.toLowerCase(),
-    )?.displayName ?? id;
-
-  const filtered = events.filter((event) => {
-    const query = searchQuery.trim().toLowerCase();
-    const matchesSearch =
-      query.length === 0 ||
-      event.action.toLowerCase().includes(query) ||
-      event.actorId.toLowerCase().includes(query) ||
-      resolveActor(event.actorId).toLowerCase().includes(query) ||
-      event.targetId.toLowerCase().includes(query);
-    const matchesOutcome = outcome === "" || event.outcome === outcome;
-    return matchesSearch && matchesOutcome;
-  });
+  const getIntegrityBadge = (status: string) => {
+    const isVerified = status === "Verified";
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium border ${
+          isVerified
+            ? "bg-success/10 text-success border-success/20"
+            : "bg-surface-hover text-muted border-strong"
+        }`}
+      >
+        <span
+          className={`w-1.5 h-1.5 rounded-full ${
+            isVerified ? "bg-success" : "bg-muted"
+          }`}
+        />
+        {status}
+      </span>
+    );
+  };
 
   return (
     <div className="p-6 max-w-7xl mx-auto text-primary space-y-6">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div className="max-w-2xl">
-          <h1 className="text-xl font-bold text-primary tracking-wide">Audit Trail</h1>
+          <h1 className="text-xl font-bold text-primary tracking-wide">
+            Audit Trail
+          </h1>
           <p className="text-xs text-muted mt-1 leading-relaxed">
-            Append-only. Every template, run and membership action is stored as its
-            own record, and each record holds the SHA-256 hash of the one before it,
-            so changing or deleting any record breaks the chain.
+            Append-only. Every step is stored as its own record, and each record
+            holds the SHA-256 hash of the one before it, so changing or deleting
+            any record breaks the chain. Records are grouped by request so each
+            activity reads as one lineage.
           </p>
         </div>
         <button
           type="button"
-          onClick={() => {
-            const json = JSON.stringify(events, null, 2);
-            const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
-            const anchor = document.createElement("a");
-            anchor.href = url;
-            anchor.download = "case-audit-trail.json";
-            anchor.click();
-            URL.revokeObjectURL(url);
-          }}
           className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-strong bg-surface hover:bg-surface-hover text-xs font-medium text-secondary transition-colors shrink-0"
         >
           <FiLock className="w-3.5 h-3.5" />
@@ -135,174 +166,190 @@ export const AuditTrailList: React.FC<AuditTrailListProps> = ({ onSelectRecord }
         </button>
       </div>
 
-      {error && (
-        <div className="rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-xs text-danger">
-          {error}
-        </div>
-      )}
-
-      <div
-        className={`rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border shadow-sm ${
-          verification === null
-            ? "bg-surface border-subtle"
-            : verification.verified
-              ? "bg-success/10 border-success/30"
-              : "bg-danger/10 border-danger/30"
-        }`}
-      >
+      {/* Integrity Banner */}
+      <div className="bg-success/10 border border-success/30 rounded-xl p-4 flex items-center justify-between shadow-sm">
         <div className="flex items-start gap-3">
-          {verification === null ? (
-            <FiLock className="w-5 h-5 text-muted mt-0.5 shrink-0" />
-          ) : verification.verified ? (
-            <FiCheckCircle className="w-5 h-5 text-success mt-0.5 shrink-0" />
-          ) : (
-            <FiAlertTriangle className="w-5 h-5 text-danger mt-0.5 shrink-0" />
-          )}
+          <FiCheckCircle className="w-5 h-5 text-success mt-0.5 shrink-0" />
           <div>
-            <h3
-              className={`text-sm font-semibold ${
-                verification === null
-                  ? "text-primary"
-                  : verification.verified
-                    ? "text-success"
-                    : "text-danger"
-              }`}
-            >
-              {verification === null
-                ? "Chain integrity not checked yet"
-                : verification.verified
-                  ? `Hash chain intact: all ${verification.checked} events verified`
-                  : `Chain broken at event #${verification.brokenAt}`}
+            <h3 className="text-sm font-semibold text-success">
+              Hash chain intact: all 38 events verified
             </h3>
-            <p className="text-xs text-muted mt-0.5">
-              {verification === null
-                ? "Run verification to recompute every SHA-256 link from the database rows."
-                : verification.verified
-                  ? `Checked ${formatDateTime(verification.checkedAt)} · head ${shortHash(verification.headHash)}`
-                  : `Checked ${formatDateTime(verification.checkedAt)} · the stored hash no longer matches the recomputed one.`}
+            <p className="text-xs text-success/70 mt-0.5">
+              Checked 15 Oct 2026, 20:30:25. Events added since then are linked
+              to this chain and are checked on the next run.
             </p>
           </div>
         </div>
         <button
           type="button"
-          onClick={() => void verify()}
-          disabled={verifying}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-strong bg-surface hover:bg-surface-hover text-xs font-medium text-secondary transition-colors disabled:opacity-60 shrink-0"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-success/40 hover:bg-success/10 text-success text-xs font-medium transition-colors"
         >
-          <FiRefreshCw className={`w-3.5 h-3.5 ${verifying ? "animate-spin" : ""}`} />
-          {verifying ? "Verifying…" : "Verify integrity"}
+          <FiLock className="w-3.5 h-3.5" />
+          Verify integrity
         </button>
       </div>
 
+      {/* Filters & Toggles */}
       <div className="flex flex-col md:flex-row items-center gap-3">
+        <div className="flex items-center bg-surface border border-subtle rounded-lg p-1 shrink-0">
+          <button
+            onClick={() => setViewMode("grouped")}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+              viewMode === "grouped"
+                ? "bg-demo/20 text-demo"
+                : "text-muted hover:text-secondary"
+            }`}
+          >
+            Group by request
+          </button>
+          <button
+            onClick={() => setViewMode("flat")}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+              viewMode === "flat"
+                ? "bg-surface-hover text-primary"
+                : "text-muted hover:text-secondary"
+            }`}
+          >
+            Show every record
+          </button>
+        </div>
+
         <div className="relative flex-1 w-full min-w-[200px]">
           <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-faint w-4 h-4" />
           <input
             type="text"
             value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Search action, actor or target"
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search action, actor or job"
             className="w-full bg-surface border border-subtle rounded-lg pl-9 pr-3 py-2 text-xs text-primary placeholder:text-faint focus:outline-none focus:border-accent-primary/50"
           />
         </div>
-        <select
-          value={outcome}
-          onChange={(event) => setOutcome(event.target.value as "" | AuditOutcome)}
-          className="bg-surface border border-subtle text-xs text-primary rounded-lg px-3 py-2 focus:outline-none focus:border-accent-primary/50"
-        >
-          <option value="">All outcomes</option>
-          <option value="SUCCESS">Success</option>
-          <option value="FAILURE">Failure</option>
-          <option value="PENDING">Pending</option>
-        </select>
-        <button
-          type="button"
-          onClick={load}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-strong bg-surface hover:bg-surface-hover text-xs text-secondary"
-        >
-          <FiRefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <select className="bg-surface border border-subtle text-xs text-primary rounded-lg px-3 py-2 focus:outline-none focus:border-accent-primary/50">
+            <option>All outcomes</option>
+            <option>Success</option>
+            <option>Failure</option>
+          </select>
+          <select className="bg-surface border border-subtle text-xs text-primary rounded-lg px-3 py-2 focus:outline-none focus:border-accent-primary/50">
+            <option>All roles</option>
+            <option>Admin</option>
+            <option>Auditor</option>
+          </select>
+        </div>
       </div>
 
       <div className="text-[11px] text-faint px-1">
-        Showing {filtered.length} of {total} recorded event{total === 1 ? "" : "s"}
+        4 requests and 11 single events · 38 of 38 records
       </div>
 
+      {/* Main Table */}
       <div className="bg-surface border border-subtle rounded-xl overflow-hidden shadow-sm">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="border-b border-subtle text-[11px] text-muted bg-surface-sunken/30 uppercase tracking-wider">
-              <th className="py-3 px-4 font-medium w-full">Event</th>
-              <th className="py-3 px-4 font-medium whitespace-nowrap">Actor</th>
-              <th className="py-3 px-4 font-medium whitespace-nowrap">Time</th>
-              <th className="py-3 px-4 font-medium whitespace-nowrap">Outcome</th>
-              <th className="py-3 px-4 font-medium whitespace-nowrap">Hash</th>
+            <tr className="border-b border-subtle text-[11px] text-muted bg-background/50">
+              <th className="py-3 px-4 font-medium w-full">
+                Activity (Objective → Decision → Approval → Result)
+              </th>
+              <th className="py-3 px-4 font-medium whitespace-nowrap">
+                Records
+              </th>
+              <th className="py-3 px-4 font-medium whitespace-nowrap">
+                Last update
+              </th>
+              <th className="py-3 px-4 font-medium whitespace-nowrap">
+                Outcome
+              </th>
+              <th className="py-3 px-4 font-medium whitespace-nowrap">
+                Integrity
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-subtle/60 text-xs">
-            {filtered.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="py-10 text-center text-faint">
-                  {loading
-                    ? "Loading audit records…"
-                    : "No audit records yet — actions in this workspace will appear here."}
+            {mockAuditEntries.map((entry) => (
+              <tr
+                key={entry.id}
+                onClick={() => onSelectRecord(entry.id)}
+                className="hover:bg-surface-hover/40 transition-colors cursor-pointer group"
+              >
+                <td className="py-4 px-4 flex items-start gap-2">
+                  <FiChevronRight className="w-4 h-4 text-faint/50 mt-0.5 shrink-0 group-hover:text-accent-primary transition-colors" />
+
+                  <div className="flex-1 min-w-0 space-y-2">
+                    {/* Event/Job Title Line */}
+                    <div className="flex items-center flex-wrap gap-2">
+                      <span
+                        className={`font-mono text-xs font-semibold ${
+                          entry.outcome === "Failure"
+                            ? "text-danger"
+                            : "text-secondary group-hover:text-primary"
+                        }`}
+                      >
+                        {entry.action}
+                      </span>
+
+                      {/* Render Badges if Grouped */}
+                      {entry.tags?.map((tag, i) => (
+                        <span
+                          key={i}
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono border ${
+                            tag.outline ? "bg-transparent" : ""
+                          } ${tag.color}`}
+                        >
+                          {tag.dot && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                          )}
+                          {tag.label}
+                        </span>
+                      ))}
+                    </div>
+
+                    {/* Subtitle (Single events) */}
+                    {entry.subtitle && (
+                      <p className="text-[11px] text-faint">
+                        {entry.subtitle}
+                      </p>
+                    )}
+
+                    {/* Pipeline Lineage Viewer (Grouped jobs) */}
+                    {entry.pipeline && (
+                      <div className="flex items-center flex-wrap gap-1 mt-2">
+                        {entry.pipeline.map((step, i) => (
+                          <React.Fragment key={step.step}>
+                            <div className="bg-background border border-strong/60 rounded flex flex-col p-1.5 min-w-[100px]">
+                              <span className="text-[9px] font-bold text-faint tracking-wider">
+                                {step.step}
+                              </span>
+                              <span className="text-[11px] text-secondary font-medium mt-0.5">
+                                {step.value}
+                              </span>
+                            </div>
+                            {i < entry.pipeline!.length - 1 && (
+                              <span className="text-faint/50 text-[10px] font-mono mx-1">
+                                →
+                              </span>
+                            )}
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </td>
+
+                <td className="py-4 px-4 text-muted align-top whitespace-nowrap">
+                  {entry.records} record{entry.records > 1 ? "s" : ""}
+                </td>
+                <td className="py-4 px-4 text-secondary font-medium align-top whitespace-nowrap">
+                  {entry.lastUpdate}
+                </td>
+                <td className="py-4 px-4 align-top whitespace-nowrap">
+                  {getOutcomeBadge(entry.outcome)}
+                </td>
+                <td className="py-4 px-4 align-top whitespace-nowrap">
+                  {getIntegrityBadge(entry.integrity)}
                 </td>
               </tr>
-            ) : (
-              filtered.map((event, index) => {
-                const previous = filtered[index + 1] ?? null;
-                const next = filtered[index - 1] ?? null;
-                return (
-                  <tr
-                    key={event.id}
-                    onClick={() => onSelectRecord(event, previous, next)}
-                    className="hover:bg-surface-hover/40 transition-colors cursor-pointer group"
-                  >
-                    <td className="py-3 px-4">
-                      <div className="flex items-start gap-2">
-                        <FiChevronRight className="w-4 h-4 text-faint/50 mt-0.5 shrink-0 group-hover:text-accent-primary" />
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-mono text-[10px] text-faint">
-                              EVT-{String(event.sequence).padStart(5, "0")}
-                            </span>
-                            <span className="font-medium text-secondary group-hover:text-primary">
-                              {humanizeAction(event.action)}
-                            </span>
-                            <span className="px-1.5 py-0.5 rounded bg-surface-hover border border-subtle text-[10px] text-muted font-mono">
-                              {event.action}
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-faint mt-0.5 truncate">
-                            {event.targetType || "workspace"}
-                            {event.targetId ? ` · ${event.targetId.slice(0, 14)}` : ""}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 align-top">
-                      <div className="text-secondary">{resolveActor(event.actorId)}</div>
-                      <div className="text-[10px] text-faint">{event.actorRole}</div>
-                    </td>
-                    <td className="py-3 px-4 align-top text-muted whitespace-nowrap">
-                      {formatDateTime(event.recordedAt)}
-                    </td>
-                    <td className="py-3 px-4 align-top whitespace-nowrap">
-                      <span
-                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium border ${OUTCOME_STYLE[event.outcome]}`}
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                        {OUTCOME_LABEL[event.outcome]}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 align-top font-mono text-[10px] text-faint whitespace-nowrap">
-                      {shortHash(event.hash)}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
+            ))}
           </tbody>
         </table>
       </div>

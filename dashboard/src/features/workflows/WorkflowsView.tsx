@@ -1,178 +1,242 @@
-import React, { useMemo, useState } from "react";
-import { FiPlus, FiStar, FiX, FiCpu } from "react-icons/fi";
-import WorkflowTable from "./components/list/WorkflowTable";
-import WorkflowStatsBar, { type StatusFilter } from "./components/list/WorkflowStatsBar";
-import WorkflowSearchBar, { type CategoryFilter } from "./components/list/WorkflowSearchBar";
+import React, { useState } from "react";
+import { FiPlus, FiZap, FiStar } from "react-icons/fi";
+import WorkflowTable, {
+  type WorkflowItem,
+} from "./components/list/WorkflowTable";
+import AIGeneratorChatModal from "./components/AIGeneratorChatModal";
+import WorkflowStatsBar, {
+  type StatusFilter,
+} from "./components/list/WorkflowStatsBar";
+import WorkflowSearchBar, {
+  type CategoryFilter,
+} from "./components/list/WorkflowSearchBar";
 import ConfirmModal from "../../components/ConfirmModal";
-import { useWorkflowData } from "./useWorkflowData";
-import { useSession } from "../../context/SessionContext";
-import { errorMessage, generateTemplate } from "../../api/client";
 
 interface WorkflowsViewProps {
   onOpenBuilder?: (workflowId?: string) => void;
 }
 
-/**
- * My Workflows — the real template list.
- *
- * Every mutation goes to the API: the status toggle activates/deactivates,
- * approving a PENDING draft and activating a deactivated one. Renaming,
- * duplicating, exporting and deleting operate on the stored template.
- */
-export const WorkflowsView: React.FC<WorkflowsViewProps> = ({ onOpenBuilder }) => {
-  const data = useWorkflowData();
-  const { can } = useSession();
-  const canCreate = can("template:create");
-  const canGenerate = can("template:generate");
-  // Auditors can read the list but must not be offered mutation controls.
-  const canMutate = can("template:edit");
+export interface ExtendedWorkflowItem extends WorkflowItem {
+  category: "support" | "operations" | "engineering" | "growth";
+}
+
+// UI-REGION: My Workflows — stats bar, search/category filters, and the
+// paginated workflow table.
+// TODO[BACKEND]: Replace this hard-coded initialWorkflows array with a
+// paginated fetch from GET /api/workflows?search=&category=&status= in a
+// useEffect, and route the mutations to the API: handleToggleStatus →
+// PATCH /api/workflows/:id/status, handleDuplicate →
+// POST /api/workflows/:id/duplicate, handleConfirmDelete →
+// DELETE /api/workflows/:id, handleExportJson → GET /api/workflows/:id/export.
+const initialWorkflows: ExtendedWorkflowItem[] = [
+  {
+    id: "wf-1",
+    name: "Customer Onboarding Agent",
+    description:
+      "Sends welcome sequence, provisions org database entries, and generates sandbox API keys.",
+    status: "active",
+    lastRun: "2 hours ago",
+    createdAt: "2026-09-24T14:15:00Z",
+    triggerType: "Stripe Webhook",
+    category: "growth",
+  },
+  {
+    id: "wf-2",
+    name: "Urgent Support Triage",
+    description:
+      "Classifies high-priority inbound customer tickets via LLM and alerts on-call leads.",
+    status: "active",
+    lastRun: "10 mins ago",
+    createdAt: "2026-09-20T10:00:00Z",
+    triggerType: "Email Webhook",
+    category: "support",
+  },
+  {
+    id: "wf-3",
+    name: "Daily Standup Slack Bot",
+    description:
+      "Pings engineering channels every weekday at 9:30 AM to collect blocker reports.",
+    status: "inactive",
+    lastRun: "Yesterday",
+    createdAt: "2026-09-15T08:30:00Z",
+    triggerType: "Cron Schedule",
+    category: "engineering",
+  },
+  {
+    id: "wf-4",
+    name: "Data Lake Audit ETL",
+    description:
+      "Runs schema consistency checks on production parquet records and dispatches summaries.",
+    status: "active",
+    lastRun: "4 hours ago",
+    createdAt: "2026-08-11T12:00:00Z",
+    triggerType: "Event Trigger",
+    category: "operations",
+  },
+  {
+    id: "wf-5",
+    name: "GitHub PR Auto-Reviewer",
+    description:
+      "Scans new pull requests for security vulnerabilities and generates inline test recommendations.",
+    status: "inactive",
+    lastRun: "3 days ago",
+    createdAt: "2026-07-04T09:40:00Z",
+    triggerType: "GitHub Webhook",
+    category: "engineering",
+  },
+];
+
+export const WorkflowsView: React.FC<WorkflowsViewProps> = ({
+  onOpenBuilder,
+}) => {
+  const [workflows, setWorkflows] =
+    useState<ExtendedWorkflowItem[]>(initialWorkflows);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>("all");
+  const [selectedCategory, setSelectedCategory] =
+    useState<CategoryFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [workflowToDelete, setWorkflowToDelete] = useState<string | null>(null);
-  const [isGenerateOpen, setIsGenerateOpen] = useState(false);
-  const [prompt, setPrompt] = useState("");
-  const [generating, setGenerating] = useState(false);
-  const [generateError, setGenerateError] = useState<string | null>(null);
-  const [transcript, setTranscript] = useState<
-    { role: "user" | "assistant"; text: string }[]
-  >([]);
 
-  const filtered = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    return data.rows.filter((row) => {
-      const template = data.byId(row.id);
-      if (!template) return false;
+  // AI workflow generator chat (prototype)
+  const [isAiChatOpen, setIsAiChatOpen] = useState(false);
 
-      const matchesSearch =
-        query.length === 0 ||
-        row.name.toLowerCase().includes(query) ||
-        row.description.toLowerCase().includes(query) ||
-        template.steps.some((step) => step.name.toLowerCase().includes(query));
+  // Track which workflow is pending deletion confirmation
+  const [workflowToDelete, setWorkflowToDelete] =
+    useState<ExtendedWorkflowItem | null>(null);
 
-      const matchesStatus = statusFilter === "all" || row.status === statusFilter;
+  const handleToggleStatus = (id: string) => {
+    setWorkflows((prev) =>
+      prev.map((wf) =>
+        wf.id === id
+          ? { ...wf, status: wf.status === "active" ? "inactive" : "active" }
+          : wf,
+      ),
+    );
+  };
 
-      const matchesCategory =
-        selectedCategory === "all" ||
-        (selectedCategory === "approved" && template.reviewStatus === "APPROVED") ||
-        (selectedCategory === "pending" && template.reviewStatus === "PENDING") ||
-        (selectedCategory === "rejected" && template.reviewStatus === "REJECTED") ||
-        (selectedCategory === "ai" && template.origin === "AI_DRAFTED");
+  const handleDuplicate = (workflow: WorkflowItem) => {
+    const original = workflows.find((w) => w.id === workflow.id);
+    const duplicated: ExtendedWorkflowItem = {
+      ...workflow,
+      category: original?.category || "operations",
+      id: `wf-${Date.now()}`,
+      name: `${workflow.name} (Copy)`,
+      createdAt: new Date().toISOString(),
+      status: "inactive",
+    };
+    setWorkflows((prev) => [duplicated, ...prev]);
+  };
 
-      return matchesSearch && matchesStatus && matchesCategory;
-    });
-  }, [data.rows, data.byId, searchQuery, statusFilter, selectedCategory]);
+  // Rename workflow (prototype-local: view state only).
+  // TODO[BACKEND]: Persist server-side — PATCH /api/workflows/:id with
+  // { name } — and apply optimistically on success.
+  const handleRename = (id: string, newName: string) => {
+    setWorkflows((prev) =>
+      prev.map((wf) => (wf.id === id ? { ...wf, name: newName } : wf)),
+    );
+  };
 
-  const activeCount = data.rows.filter((row) => row.status === "active").length;
-  const inactiveCount = data.rows.length - activeCount;
+  const handleExportJson = (workflow: WorkflowItem) => {
+    const dataStr =
+      "data:text/json;charset=utf-8," +
+      encodeURIComponent(JSON.stringify(workflow, null, 2));
+    const downloadAnchor = document.createElement("a");
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute(
+      "download",
+      `${workflow.name.toLowerCase().replace(/\s+/g, "_")}.json`,
+    );
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
 
-  /**
-   * Draft with AI. The request is sent as the conversation so far, so a second
-   * answer builds on the AI's clarifying question. A vague request gets a
-   * question back — never an invented workflow.
-   */
-  const generate = async () => {
-    if (generating) return;
-    const text = prompt.trim();
-    setGenerateError(null);
-
-    if (!text) {
-      setTranscript((current) => [
-        ...current,
-        {
-          role: "assistant",
-          text: "I need a bit more detail before I can draft this: what case does the workflow handle, what must be checked or approved (and by whom), and what document or message should it produce? If someone must upload a PDF or image for me to read, tell me that too.",
-        },
-      ]);
-      return;
-    }
-
-    const conversation = [...transcript, { role: "user" as const, text }];
-    const payload = conversation
-      .map((entry) => `${entry.role === "user" ? "Operator" : "Assistant"}: ${entry.text}`)
-      .join("\n");
-
-    setGenerating(true);
-    try {
-      const result = await generateTemplate(payload);
-      if (result.kind === "clarification") {
-        setTranscript([
-          ...conversation,
-          { role: "assistant", text: result.question },
-        ]);
-        setPrompt("");
-        return;
-      }
-
-      setIsGenerateOpen(false);
-      setPrompt("");
-      setTranscript([]);
-      data.refresh();
-      onOpenBuilder?.(result.template.templateId);
-    } catch (caught) {
-      setGenerateError(errorMessage(caught));
-    } finally {
-      setGenerating(false);
+  // Prompt user confirmation instead of directly deleting
+  const handlePromptDelete = (id: string) => {
+    const target = workflows.find((w) => w.id === id);
+    if (target) {
+      setWorkflowToDelete(target);
     }
   };
 
+  // Execute confirmed removal
+  const handleConfirmDelete = () => {
+    if (workflowToDelete) {
+      setWorkflows((prev) =>
+        prev.filter((wf) => wf.id !== workflowToDelete.id),
+      );
+      setWorkflowToDelete(null);
+    }
+  };
+
+  const handleResetFilters = () => {
+    setSearchQuery("");
+    setSelectedCategory("all");
+    setStatusFilter("all");
+  };
+
+  const filteredWorkflows = workflows.filter((wf) => {
+    const matchesSearch =
+      wf.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      wf.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      wf.triggerType.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesCategory =
+      selectedCategory === "all" || wf.category === selectedCategory;
+
+    const matchesStatus = statusFilter === "all" || wf.status === statusFilter;
+
+    return matchesSearch && matchesCategory && matchesStatus;
+  });
+
+  const activeCount = workflows.filter((w) => w.status === "active").length;
+  const inactiveCount = workflows.length - activeCount;
+
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
+      {/* Header and Action Button */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-primary tracking-tight flex items-center gap-2">
-            <FiZapIcon />
+            <FiZap className="w-5 h-5 text-accent-primary" />
             My Workflows
           </h1>
           <p className="text-xs text-muted mt-1">
-            Draft, review, approve and run CASE workflow templates.
+            Build, monitor, and deploy automated multi-agent pipelines and
+            webhooks.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          {canGenerate && (
-            <button
-              type="button"
-              onClick={() => setIsGenerateOpen(true)}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-accent-primary/40 bg-accent-primary/10 hover:bg-accent-primary/20 text-accent-primary font-semibold text-xs transition-all active:scale-95"
-            >
-              <FiStar className="w-4 h-4" />
-              Generate with AI
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setIsAiChatOpen(true)}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-accent-primary/40 bg-accent-primary/10 hover:bg-accent-primary/20 text-accent-primary font-semibold text-xs transition-all active:scale-95"
+          >
+            <FiStar className="w-4 h-4" />
+            Generate with AI
+          </button>
 
-          {canCreate && (
-            <button
-              type="button"
-              onClick={() => onOpenBuilder?.()}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold text-xs transition-all shadow-md shadow-accent-primary/40 active:scale-95"
-            >
-              <FiPlus className="w-4 h-4 stroke-[2.5]" />
-              Create Workflow
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => onOpenBuilder?.()}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold text-xs transition-all shadow-md shadow-accent-primary/40 active:scale-95"
+          >
+            <FiPlus className="w-4 h-4 stroke-[2.5]" />
+            Create Workflow
+          </button>
         </div>
       </div>
 
-      {data.error && (
-        <div className="rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-xs text-danger">
-          {data.error}
-        </div>
-      )}
-      {data.notice && (
-        <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-xs text-success">
-          {data.notice}
-        </div>
-      )}
-
+      {/* Stats Bar */}
       <WorkflowStatsBar
-        totalCount={data.rows.length}
+        totalCount={workflows.length}
         activeCount={activeCount}
         inactiveCount={inactiveCount}
         activeFilter={statusFilter}
         onFilterChange={setStatusFilter}
       />
 
+      {/* Search & Category Filter */}
       <WorkflowSearchBar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -180,25 +244,18 @@ export const WorkflowsView: React.FC<WorkflowsViewProps> = ({ onOpenBuilder }) =
         onSelectCategory={setSelectedCategory}
       />
 
-      {data.loading && data.rows.length === 0 ? (
-        <div className="w-full bg-surface border border-subtle rounded-xl p-12 text-center text-xs text-muted">
-          Loading templates…
-        </div>
-      ) : filtered.length === 0 ? (
+      {/* Workflows Table */}
+      {filteredWorkflows.length === 0 ? (
         <div className="w-full bg-surface border border-subtle rounded-xl p-12 text-center">
           <p className="text-sm text-secondary font-medium">
-            No templates match your criteria
+            No workflows match your criteria
           </p>
           <p className="text-xs text-faint mt-1">
-            Try clearing the search or review-state filter.
+            Try resetting your search or filter tags.
           </p>
           <button
             type="button"
-            onClick={() => {
-              setSearchQuery("");
-              setSelectedCategory("all");
-              setStatusFilter("all");
-            }}
+            onClick={handleResetFilters}
             className="mt-4 px-3 py-1.5 rounded-lg border border-strong text-xs text-accent-primary hover:bg-surface-hover transition-colors"
           >
             Clear all filters
@@ -206,149 +263,40 @@ export const WorkflowsView: React.FC<WorkflowsViewProps> = ({ onOpenBuilder }) =
         </div>
       ) : (
         <WorkflowTable
-          workflows={filtered}
-          canMutate={canMutate}
-          onToggleStatus={(id) => {
-            const template = data.byId(id);
-            if (template) void data.toggleActive(template);
-          }}
-          onDuplicate={(row) => {
-            const template = data.byId(row.id);
-            if (template) void data.duplicate(template);
-          }}
-          onExportJson={(row) => {
-            const template = data.byId(row.id);
-            if (template) data.exportJson(template);
-          }}
-          onDelete={setWorkflowToDelete}
-          onRename={(id, name) => {
-            const template = data.byId(id);
-            if (template) void data.rename(template, name);
-          }}
-          onNavigateToWorkflows={() => {
-            setSearchQuery("");
-            setSelectedCategory("all");
-            setStatusFilter("all");
-          }}
+          workflows={filteredWorkflows}
+          onToggleStatus={handleToggleStatus}
+          onDuplicate={handleDuplicate}
+          onExportJson={handleExportJson}
+          onDelete={handlePromptDelete} // Routed to confirmation prompt
+          onRename={handleRename}
+          onNavigateToWorkflows={handleResetFilters}
           onSelectWorkflow={(workflowId) => onOpenBuilder?.(workflowId)}
         />
       )}
 
+      {/* Delete Confirmation Modal */}
       <ConfirmModal
-        isOpen={workflowToDelete !== null}
-        title="Deactivate workflow"
-        message={`Deactivating “${
-          data.byId(workflowToDelete ?? "")?.name ?? ""
-        }” stops new runs. Its template, reviews and run history are kept — nothing is deleted.`}
-        confirmLabel="Deactivate"
-        cancelLabel="Keep active"
+        isOpen={Boolean(workflowToDelete)}
+        title="Delete Workflow"
+        message={`Are you sure you want to delete "${workflowToDelete?.name}"? All associated trigger webhooks and scheduled jobs will be stopped permanently.`}
+        confirmLabel="Delete Workflow"
+        cancelLabel="Keep Workflow"
         variant="danger"
-        onConfirm={() => {
-          const template = data.byId(workflowToDelete ?? "");
-          if (template) void data.remove(template);
-          setWorkflowToDelete(null);
-        }}
+        onConfirm={handleConfirmDelete}
         onCancel={() => setWorkflowToDelete(null)}
       />
 
-      {isGenerateOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-surface border border-subtle rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
-            <div className="p-4 border-b border-subtle flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-primary flex items-center gap-2">
-                <FiCpu className="w-4 h-4 text-accent-primary" />
-                Draft a template with AI
-              </h3>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsGenerateOpen(false);
-                  setTranscript([]);
-                }}
-                className="text-muted hover:text-primary p-1 rounded-lg hover:bg-surface-hover"
-                aria-label="Close"
-              >
-                <FiX className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="p-4 space-y-3">
-              <p className="text-xs text-muted leading-relaxed">
-                Describe the workflow in your own words. The AI asks for details when
-                the request is unclear, and only drafts what you asked for. The draft is
-                saved as a pending, inactive template — a human must still approve it.
-              </p>
-
-              {transcript.length > 0 && (
-                <div className="max-h-56 overflow-y-auto space-y-2 rounded-lg border border-subtle bg-background p-3">
-                  {transcript.map((entry, index) => (
-                    <div
-                      key={index}
-                      className={`text-[11px] leading-relaxed ${
-                        entry.role === "user" ? "text-secondary" : "text-accent-primary"
-                      }`}
-                    >
-                      <span className="font-semibold uppercase tracking-wider text-[9px] mr-1.5">
-                        {entry.role === "user" ? "You" : "AI"}
-                      </span>
-                      {entry.text}
-                    </div>
-                  ))}
-                  {generating && (
-                    <p className="text-[11px] text-faint">Reading your request…</p>
-                  )}
-                </div>
-              )}
-
-              <textarea
-                value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                    void generate();
-                  }
-                }}
-                rows={4}
-                placeholder="e.g. A maintenance complaint workflow: review the complaint, validate the location and contact details, approve it, ask the officer to upload the signed form as a PDF for the AI to read, generate a reply letter, then notify the requester by email."
-                className="w-full bg-background border border-subtle rounded-lg px-3 py-2 text-xs text-primary placeholder:text-faint focus:outline-none focus:border-accent-primary/50"
-              />
-              {generateError && (
-                <p className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
-                  {generateError}
-                </p>
-              )}
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsGenerateOpen(false);
-                    setTranscript([]);
-                  }}
-                  className="px-3 py-1.5 rounded-lg border border-strong text-xs text-secondary hover:bg-surface-hover"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void generate()}
-                  disabled={generating}
-                  className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast text-xs font-semibold disabled:opacity-50"
-                >
-                  {generating && (
-                    <span className="w-3.5 h-3.5 border-2 border-accent-contrast/40 border-t-accent-contrast rounded-full animate-spin" />
-                  )}
-                  {generating ? "Thinking…" : "Send"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* AI Workflow Generator Chat (prototype) */}
+      <AIGeneratorChatModal
+        isOpen={isAiChatOpen}
+        onClose={() => setIsAiChatOpen(false)}
+        onOpenBuilder={(workflowId) => {
+          setIsAiChatOpen(false);
+          onOpenBuilder?.(workflowId);
+        }}
+      />
     </div>
   );
 };
-
-function FiZapIcon() {
-  return <FiStar className="w-5 h-5 text-accent-primary" />;
-}
 
 export default WorkflowsView;
