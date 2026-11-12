@@ -6,6 +6,7 @@ import {
   FiActivity,
   FiGrid,
   FiUsers,
+  FiPlayCircle,
   FiChevronLeft,
   FiChevronRight,
 } from "react-icons/fi";
@@ -13,6 +14,7 @@ import {
 export type NavItem =
   | "dashboard"
   | "workflows"
+  | "runs"
   | "employees"
   | "audit"
   | "integrations"
@@ -27,6 +29,8 @@ interface SidebarProps {
   mobileOpen?: boolean;
   /** Closes the mobile drawer after a nav selection. */
   onCloseMobile?: () => void;
+  /** Optional permission gate — hidden items are not just disabled. */
+  can?: (permission: string) => boolean;
 }
 
 // UI-REGION: Sidebar — primary navigation rail (desktop collapse to icon
@@ -39,14 +43,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleCollapse,
   mobileOpen = false,
   onCloseMobile,
+  can,
 }) => {
-  const primaryNav = [
-    { id: "dashboard" as NavItem, label: "Dashboard", icon: FiHome },
-    { id: "workflows" as NavItem, label: "Workflows", icon: FiGitBranch },
-    { id: "employees" as NavItem, label: "Employees", icon: FiUsers },
-    { id: "audit" as NavItem, label: "Audit Trail", icon: FiActivity },
-    { id: "integrations" as NavItem, label: "Integrations", icon: FiGrid },
+  const allNav: {
+    id: NavItem;
+    label: string;
+    icon: typeof FiHome;
+    permission?: string;
+  }[] = [
+    { id: "dashboard", label: "Dashboard", icon: FiHome },
+    { id: "workflows", label: "Workflows", icon: FiGitBranch },
+    { id: "runs", label: "Runs", icon: FiPlayCircle },
+    { id: "employees", label: "Employees", icon: FiUsers, permission: "users:manage" },
+    { id: "audit", label: "Audit Trail", icon: FiActivity },
+    { id: "integrations", label: "Integrations", icon: FiGrid },
   ];
+  const primaryNav = allNav.filter(
+    (item) => !item.permission || !can || can(item.permission),
+  );
 
   const handleSelect = (tab: NavItem) => {
     onSelectTab(tab);
