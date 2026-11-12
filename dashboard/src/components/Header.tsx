@@ -15,9 +15,6 @@ interface HeaderProps {
   onDeploy?: () => void;
   /** Opens the mobile (< 768px) sidebar drawer. */
   onMenuClick?: () => void;
-  /** Real, server-derived notifications (pending approvals / reviews). */
-  notifications?: NotificationItem[];
-  onClearNotifications?: () => void;
 }
 
 // UI-REGION: Top header — global search, notification bell, and profile
@@ -33,11 +30,39 @@ export const Header: React.FC<HeaderProps> = ({
   onSave,
   onDeploy,
   onMenuClick,
-  notifications = [],
-  onClearNotifications,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // TODO[BACKEND]: Replace this hard-coded notification list with a fetch
+  // from GET /api/notifications (plus polling or SSE for live updates) and
+  // wire onClearAll to DELETE /api/notifications.
+  const [notifications, setNotifications] = useState<NotificationItem[]>([
+    {
+      id: "1",
+      title: "Workflow Execution Failed",
+      description: "Zendesk Ticket Sync encountered an invalid API response.",
+      time: "2 mins ago",
+      type: "warning",
+      read: false,
+    },
+    {
+      id: "2",
+      title: "Agent Deployed Successfully",
+      description: "Urgent Support Triage v1.4 is now live.",
+      time: "1 hour ago",
+      type: "success",
+      read: false,
+    },
+    {
+      id: "3",
+      title: "Connector Auth Expiring",
+      description: "Slack OAuth token expires in 48 hours.",
+      time: "3 hours ago",
+      type: "info",
+      read: false,
+    },
+  ]);
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -171,7 +196,7 @@ export const Header: React.FC<HeaderProps> = ({
             <Notification
               notifications={notifications}
               onClose={() => setIsOpen(false)}
-              onClearAll={() => onClearNotifications?.()}
+              onClearAll={() => setNotifications([])}
             />
           )}
         </div>

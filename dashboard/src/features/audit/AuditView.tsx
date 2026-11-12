@@ -1,85 +1,88 @@
-import React, { useEffect, useState } from "react";
-import { FiArrowLeft, FiCheckCircle, FiAlertTriangle } from "react-icons/fi";
+import React, { useState } from "react";
+import { FiArrowLeft, FiAlertTriangle } from "react-icons/fi";
 import { HashChainInspector } from "./components/HashChainInspector";
 import RecordDetailsCard from "./components/RecordDetailsCard";
 import { AuditTrailList } from "./components/AuditTrailList";
 import { type AuditRecord } from "./types/audit.types";
-import { errorMessage, listMembers, verifyAudit } from "../../api/client";
-import type { AuditEvent, AuditOutcome, Member } from "../../api/types";
-import { formatDateTime } from "../../lib/format";
 
-const OUTCOME_LABEL: Record<AuditOutcome, AuditRecord["outcome"]> = {
-  SUCCESS: "Success",
-  FAILURE: "Failure",
-  PENDING: "Pending",
+// UI-REGION: Audit Detail View — single inspected event record.
+// TODO[BACKEND]: Replace this hard-coded mockEvent38 with a data fetch from
+// GET /api/audit/events/:id — load it in a useEffect keyed on
+// selectedEventId and seed the `record` state below from the JSON response
+// (sequence, actor, prev_hash, hash, details) instead of this literal.
+// The mock event for the detailed view
+const mockEvent38: AuditRecord = {
+  id: "EVT-00038",
+  sequence: 38,
+  timestamp: "2026-10-15T12:30:25.965Z",
+  displayTime: "15 Oct 2026, 20:30:25 (MYT)",
+  actor: "Mei Ling",
+  role: "auditor",
+  workspace: "ws_finops_01",
+  action: "AUDIT_INTEGRITY_VERIFIED",
+  target: "Audit chain",
+  source: "Web app",
+  outcome: "Success",
+  integrity: "Not checked",
+  prevHash: "d53039a945e2526135d96fdc092ccbd77727a80ee103d70646f1351e39f0c19b",
+  hash: "c7dc2202b9985a41e73d9e50a2d51b83d519faaf98e37ba1c5d8f9591f7429c9",
+  details: {
+    events_checked: 37,
+    algorithm: "SHA-256",
+    last_hash:
+      "d53039a945e2526135d96fdc092ccbd77727a80ee103d70646f1351e39f0c19b",
+  },
 };
-
-const ROLE_LABEL: Record<AuditEvent["actorRole"], AuditRecord["role"]> = {
-  admin: "admin",
-  operator: "staff",
-  auditor: "auditor",
-  system: "staff",
-};
-
-interface Selection {
-  event: AuditEvent;
-  previous: AuditEvent | null;
-  next: AuditEvent | null;
-}
 
 export const AuditView: React.FC = () => {
-  const [selection, setSelection] = useState<Selection | null>(null);
-  const [members, setMembers] = useState<Member[]>([]);
-  const [check, setCheck] = useState<{ verified: boolean; checkedAt: string } | null>(
-    null,
-  );
+  // If null, show the list. If populated, show the detail inspector.
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
-  useEffect(() => {
-    listMembers()
-      .then(setMembers)
-      .catch(() => setMembers([]));
-  }, []);
+  // Detail View State
+  const [record, setRecord] = useState<AuditRecord>(mockEvent38);
+  const [tamperField, setTamperField] = useState("actor");
+  const [tamperValue, setTamperValue] = useState("");
+  const [tamperNotice, setTamperNotice] = useState<string | null>(null);
 
-  const actorName = (id: string): string =>
-    members.find(
-      (member) =>
-        member.id === id || member.email.toLowerCase() === id.toLowerCase(),
-    )?.displayName ?? id;
+  const handleTamperWithoutRehash = () => {
+    if (!tamperValue.trim()) return;
+    setRecord((prev) => ({
+      ...prev,
+      [tamperField]: tamperValue,
+    }));
+    setTamperNotice(
+      `Tampered ${tamperField} directly in memory without recomputing SHA-256 hash. The hash chain verification will fail.`,
+    );
+  };
 
-  const toRecord = (event: AuditEvent): AuditRecord => ({
-    id: `EVT-${String(event.sequence).padStart(5, "0")}`,
-    sequence: event.sequence,
-    timestamp: event.recordedAt,
-    displayTime: formatDateTime(event.recordedAt),
-    actor: actorName(event.actorId),
-    role: ROLE_LABEL[event.actorRole],
-    workspace: "case_workspace",
-    action: event.action,
-    target: event.targetType ? `${event.targetType}/${event.targetId || "—"}` : "Workspace",
-    source: "CASE API",
-    outcome: OUTCOME_LABEL[event.outcome],
-    details: event.details,
-    prevHash: event.prevHash,
-    hash: event.hash,
-    integrity: check?.verified ? "Verified" : "Not checked",
-  });
+  const handleTamperAndRehash = () => {
+    if (!tamperValue.trim()) return;
+    const fakeHash = "e912ab" + Math.random().toString(16).substring(2, 60);
+    setRecord((prev) => ({
+      ...prev,
+      [tamperField]: tamperValue,
+      hash: fakeHash,
+    }));
+    setTamperNotice(
+      `Altered ${tamperField} and forged a new record hash. The subsequent record's prev_hash pointer is now broken.`,
+    );
+  };
 
-  if (!selection) {
-    return <AuditTrailList onSelectRecord={(event, previous, next) => setSelection({ event, previous, next })} />;
+  // 1. RENDER MASTER LIST
+  if (!selectedEventId) {
+    return <AuditTrailList onSelectRecord={(id) => setSelectedEventId(id)} />;
   }
 
-  const record = toRecord(selection.event);
-  const previousRecord = selection.previous ? toRecord(selection.previous) : undefined;
-  const nextRecord = selection.next ? toRecord(selection.next) : null;
-
+  // 2. RENDER DETAIL INSPECTOR
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto text-primary">
+    <div className="p-6 space-y-6 max-w-7xl mx-auto text-primary animate-in fade-in duration-200">
+      {/* Top Breadcrumb & Status */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <button
             type="button"
-            onClick={() => setSelection(null)}
-            className="inline-flex items-center gap-1.5 text-xs text-accent-primary hover:underline font-medium mb-1"
+            onClick={() => setSelectedEventId(null)}
+            className="inline-flex items-center gap-1.5 text-xs text-accent-primary hover:text-accent-primary transition-colors font-medium mb-1"
           >
             <FiArrowLeft className="w-3.5 h-3.5" />
             <span>Audit Trail</span>
@@ -91,14 +94,8 @@ export const AuditView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <span
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
-              record.outcome === "Success"
-                ? "bg-success/10 text-success border-success/20"
-                : "bg-danger/10 text-danger border-danger/20"
-            }`}
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-current" />
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-success/10 text-success border border-success/20">
+            <span className="w-1.5 h-1.5 rounded-full bg-success" />
             {record.outcome}
           </span>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-surface-hover text-muted border border-strong">
@@ -108,56 +105,73 @@ export const AuditView: React.FC = () => {
         </div>
       </div>
 
+      {/* Main Grid: Left Details & Right Hash Chain Inspector */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <RecordDetailsCard record={record} />
-        <HashChainInspector
-          currentRecord={record}
-          previousRecord={previousRecord}
-          nextRecord={nextRecord}
-          onVerify={async () => {
-            try {
-              const result = await verifyAudit();
-              setCheck({ verified: result.verified, checkedAt: result.checkedAt });
-              return result.verified
-                ? {
-                    verified: true,
-                    message: `Match. All ${result.checked} links verify — this record is unchanged.`,
-                  }
-                : {
-                    verified: false,
-                    message: `Mismatch. The chain breaks at event #${result.brokenAt}.`,
-                  };
-            } catch (caught) {
-              return { verified: false, message: errorMessage(caught) };
-            }
-          }}
-        />
+        <HashChainInspector currentRecord={record} />
       </div>
 
-      <div className="rounded-2xl border border-subtle bg-surface p-5 shadow-sm space-y-2">
-        <div className="flex items-center gap-2">
-          {check?.verified ? (
-            <FiCheckCircle className="w-4 h-4 text-success" />
-          ) : (
-            <FiAlertTriangle className="w-4 h-4 text-muted" />
-          )}
-          <h4 className="text-xs font-bold text-secondary uppercase tracking-wider">
-            How this record is protected
-          </h4>
+      {/* Bottom: Interactive Tamper Simulation Sandbox */}
+      <div className="border border-dashed border-demo/40 bg-demo/10 rounded-2xl p-5 shadow-sm space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <FiAlertTriangle className="text-demo w-4 h-4" />
+            <h4 className="text-xs font-bold text-demo uppercase tracking-wider">
+              Tamper with this record
+            </h4>
+          </div>
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-demo/10 text-demo border border-demo/20 font-bold">
+            DEMO TOOL
+          </span>
         </div>
+
         <p className="text-xs text-muted leading-relaxed max-w-3xl">
-          The stored <span className="font-mono text-accent-primary">hash</span> is
-          SHA-256 over this record&apos;s fields plus the previous record&apos;s hash.
-          Verification recomputes the whole chain from the database rows: editing a
-          row (or deleting one) makes every later link fail, which is what the
-          verify action above reports. There is no write endpoint for audit
-          records — they are appended by the API as actions happen.
+          Simulates someone editing the database directly, bypassing AxiomFlow.
+          Then recompute the hash or run verify integrity to watch cryptographic
+          detection trigger.
         </p>
-        {check && (
-          <p className="text-[11px] font-mono text-faint">
-            last checked {formatDateTime(check.checkedAt)} ·{" "}
-            {check.verified ? "chain intact" : "chain broken"}
-          </p>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <select
+            value={tamperField}
+            onChange={(e) => setTamperField(e.target.value)}
+            className="bg-background border border-subtle text-xs text-primary rounded-lg px-3 py-1.5 focus:outline-none focus:border-demo/50"
+          >
+            <option value="actor">actor</option>
+            <option value="action">action</option>
+            <option value="workspace">workspace</option>
+            <option value="target">target</option>
+          </select>
+
+          <input
+            type="text"
+            value={tamperValue}
+            onChange={(e) => setTamperValue(e.target.value)}
+            placeholder="New value, e.g. Unknown Attacker"
+            className="flex-1 min-w-[200px] bg-background border border-subtle rounded-lg px-3 py-1.5 text-xs text-primary placeholder:text-faint focus:outline-none focus:border-demo/50"
+          />
+
+          <button
+            type="button"
+            onClick={handleTamperWithoutRehash}
+            className="px-3 py-1.5 rounded-lg border border-demo/30 bg-demo/10 hover:bg-demo/10 text-demo text-xs font-medium transition-colors"
+          >
+            Edit without re-hashing
+          </button>
+
+          <button
+            type="button"
+            onClick={handleTamperAndRehash}
+            className="px-3 py-1.5 rounded-lg border border-demo/30 bg-demo/10 hover:bg-demo/10 text-demo text-xs font-medium transition-colors"
+          >
+            Edit and re-hash (smarter attacker)
+          </button>
+        </div>
+
+        {tamperNotice && (
+          <div className="p-3 bg-demo/10 border border-demo/30 rounded-lg text-xs text-demo font-mono">
+            {tamperNotice}
+          </div>
         )}
       </div>
     </div>

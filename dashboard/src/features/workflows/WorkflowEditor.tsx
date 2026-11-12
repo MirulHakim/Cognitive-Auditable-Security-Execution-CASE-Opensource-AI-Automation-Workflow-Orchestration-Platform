@@ -1,579 +1,724 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   FiArrowLeft,
   FiPlay,
   FiSave,
   FiPlus,
+  FiZoomIn,
+  FiZoomOut,
+  FiMaximize2,
+  FiMinimize2,
   FiEdit2,
+  FiZap,
   FiTrash2,
-  FiChevronLeft,
-  FiChevronRight,
-  FiCheck,
-  FiX,
-  FiUserCheck,
-  FiCheckSquare,
-  FiSend,
-  FiFileText,
-  FiUploadCloud,
-  FiInfo,
 } from "react-icons/fi";
-import {
-  ApiError,
-  approveTemplate,
-  createTemplate,
-  getTemplate,
-  rejectTemplate,
-  startInstance,
-  updateTemplate,
-  errorMessage,
-  activateTemplate,
-  deactivateTemplate,
-} from "../../api/client";
-import type { FileType, StepType, Template } from "../../api/types";
-import { useSession } from "../../context/SessionContext";
-import { formatDateTime, initials } from "../../lib/format";
+import { NODE_REGISTRY, type NodeDefinition } from "./constants/NodeRegistry";
+import TriggerNode, {
+  type CanvasNodeData,
+} from "./components/editor/nodes/TriggerNode";
+import AINode from "./components/editor/nodes/AINode";
+import LogicNode from "./components/editor/nodes/LogicNode";
+import ConnectorNode from "./components/editor/nodes/ConnectorNode";
+import ApprovalNode from "./components/editor/nodes/ApprovalNode";
+import DocumentNode from "./components/editor/nodes/DocumentNode";
+import NodeCatalogModal from "./components/editor/NodeCatalog";
+import NodeSettingsModal from "./components/editor/NodeSettingsModal";
+
+export interface CanvasEdge {
+  id: string;
+  fromNodeId: string;
+  toNodeId: string;
+  /** Port id on the source node: "output" | "data-source" | "output-<index>" (branch)
+   *  | "data" | "gen" (AI-agent bottom edge). */
+  fromPort: string;
+  /** Port id on the target node: "input" | "data-source" | "tool" | "data" | "gen". */
+  toPort: string;
+  color: string;
+  /** Monotonic creation stamp — orders many-to-one wires for LIFO detachment. */
+  timestamp: number;
+}
 
 interface WorkflowEditorProps {
   workflowId?: string | null;
   onBack: () => void;
-  onOpenRun?: (instanceId: string) => void;
 }
 
-interface DraftStep {
-  id: string;
-  name: string;
-  type: StepType;
-  description: string;
-  assignedRole?: string;
-  channel?: string;
-  acceptedFileTypes?: FileType[];
-  instruction?: string;
-}
-
-const STEP_META: Record<
-  StepType,
-  { label: string; blurb: string; icon: React.ComponentType<{ className?: string }>; color: string }
-> = {
-  review: {
-    label: "Review",
-    blurb: "A human reviews the case before anything else happens.",
-    icon: FiCheck,
-    color: "text-warning bg-warning/10 border-warning/20",
-  },
-  validation: {
-    label: "Validation",
-    blurb: "Required details are checked automatically.",
-    icon: FiCheckSquare,
-    color: "text-demo bg-demo/10 border-demo/20",
-  },
-  approval: {
-    label: "Approval",
-    blurb: "Execution pauses until someone approves or rejects.",
-    icon: FiUserCheck,
-    color: "text-warning bg-warning/10 border-warning/20",
-  },
-  intake: {
-    label: "File intake",
-    blurb: "Pauses for a PDF/JPG upload; the AI reads it before the run continues.",
-    icon: FiUploadCloud,
-    color: "text-demo bg-demo/10 border-demo/20",
-  },
-  document: {
-    label: "Document",
-    blurb: "Renders a document from the run's case data.",
-    icon: FiFileText,
-    color: "text-info bg-info/10 border-info/20",
-  },
-  notification: {
-    label: "Notification",
-    blurb: "Simulated delivery to email or Telegram.",
-    icon: FiSend,
-    color: "text-success bg-success/10 border-success/20",
-  },
-};
-
-const STEP_ORDER: StepType[] = [
-  "review",
-  "validation",
-  "approval",
-  "intake",
-  "document",
-  "notification",
-];
-const ROLES = ["officer", "approver", "coordinator"];
-const CHANNELS = ["email", "telegram"];
-const FILE_TYPES: FileType[] = ["pdf", "jpg", "jpeg", "png"];
-
-/** Canvas geometry. Nodes are fixed-size so connectors can be drawn precisely. */
-const NODE_W = 280;
-const NODE_H = 136;
-const COL_GAP = 80;
-const ROW_GAP = 72;
-const CANVAS_PAD = 20;
-/** Above the first row, the manual start marker anchors the flow. */
-const TRIGGER_RECT = { x: CANVAS_PAD, y: CANVAS_PAD, w: 248, h: 56 };
-const FIRST_ROW_Y = TRIGGER_RECT.y + TRIGGER_RECT.h + 64;
-
-interface Point {
-  x: number;
-  y: number;
-}
-
-interface Rect extends Point {
-  w: number;
-  h: number;
-}
-
-/** Fallback snake layout: down two columns, used until a step is dragged. */
-function defaultSlot(index: number): Point {
-  const column = index % 2;
-  const row = Math.floor(index / 2);
-  return {
-    x: CANVAS_PAD + column * (NODE_W + COL_GAP),
-    y: FIRST_ROW_Y + row * (NODE_H + ROW_GAP),
-  };
-}
-
-/** Saved positions win; steps without one fall back to the snake layout. */
-function layoutFor(
-  steps: { id: string; position?: Point }[],
-  previous: Record<string, Point> = {},
-): Record<string, Point> {
-  const next: Record<string, Point> = {};
-  steps.forEach((step, index) => {
-    next[step.id] = previous[step.id] ?? step.position ?? defaultSlot(index);
-  });
-  return next;
-}
-
-/**
- * Cubic connector between two node rectangles, leaving each box at the edge that
- * faces the other one, so the map stays readable at any arrangement.
- */
-function edgePath(from: Rect, to: Rect): string {
-  const fromCenter = { x: from.x + from.w / 2, y: from.y + from.h / 2 };
-  const toCenter = { x: to.x + to.w / 2, y: to.y + to.h / 2 };
-  const dx = toCenter.x - fromCenter.x;
-  const dy = toCenter.y - fromCenter.y;
-
-  let sx: number;
-  let sy: number;
-  let ex: number;
-  let ey: number;
-  let c1x: number;
-  let c1y: number;
-  let c2x: number;
-  let c2y: number;
-
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    sx = dx >= 0 ? from.x + from.w : from.x;
-    sy = fromCenter.y;
-    ex = dx >= 0 ? to.x : to.x + to.w;
-    ey = toCenter.y;
-    const bend = Math.max(40, Math.abs(dx) * 0.45);
-    c1x = sx + Math.sign(dx) * bend;
-    c1y = sy;
-    c2x = ex - Math.sign(dx) * bend;
-    c2y = ey;
-  } else {
-    sx = fromCenter.x;
-    sy = dy >= 0 ? from.y + from.h : from.y;
-    ex = toCenter.x;
-    ey = dy >= 0 ? to.y : to.y + to.h;
-    const bend = Math.max(40, Math.abs(dy) * 0.45);
-    c1x = sx;
-    c1y = sy + Math.sign(dy) * bend;
-    c2x = ex;
-    c2y = ey - Math.sign(dy) * bend;
-  }
-
-  return `M ${sx} ${sy} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${ex} ${ey}`;
-}
-
-function newStep(type: StepType): DraftStep {
-  const meta = STEP_META[type];
-  return {
-    id: `step-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`,
-    name: meta.label,
-    type,
-    description:
-      type === "review"
-        ? "Review the submitted case."
-        : type === "validation"
-          ? "Check that all required details are present."
-          : type === "approval"
-            ? "Obtain approval before continuing."
-            : type === "intake"
-              ? "Upload the supporting PDF or image so the AI can read it."
-              : type === "document"
-                ? "Generate the output document from the case data."
-                : "Notify the requester of the outcome.",
-    ...(type === "notification" ? { channel: "email" } : {}),
-    ...(type === "intake"
-      ? {
-          acceptedFileTypes: ["pdf", "jpg", "png"] as FileType[],
-          instruction: "Read the document and extract the facts the approver needs.",
-        }
-      : {}),
-  };
-}
-
-function toDraft(template: Template): DraftStep[] {
-  return template.steps.map((step) => ({
-    id: step.id,
-    name: step.name,
-    type: step.type,
-    description: step.description,
-    assignedRole: step.assignedRole,
-    channel: step.channel,
-    acceptedFileTypes: step.acceptedFileTypes,
-    instruction: step.instruction,
-  }));
-}
-
-function issuesFrom(caught: unknown): string[] {
-  if (!(caught instanceof ApiError)) return [errorMessage(caught)];
-  const messages: string[] = [];
-  for (const issue of caught.details.structural ?? []) {
-    messages.push(`${issue.path}: ${issue.message}`);
-  }
-  for (const issue of caught.details.businessRules ?? []) {
-    messages.push(issue.message);
-  }
-  return messages.length > 0 ? messages : [caught.message];
-}
-
-const STATUS_STYLE: Record<Template["reviewStatus"], string> = {
-  APPROVED: "bg-success/10 text-success border-success/20",
-  PENDING: "bg-warning/10 text-warning border-warning/20",
-  REJECTED: "bg-danger/10 text-danger border-danger/20",
-};
-
-/**
- * Workflow canvas — the real step editor.
- *
- * The canvas renders the stored template steps in execution order; the drawer
- * edits one step at a time. Save validates on the server (structural + business
- * rules) and shows every violation. Approve and Run only work through the
- * server's state machine: PENDING → APPROVED+active → executable.
- */
 export const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
   workflowId,
   onBack,
-  onOpenRun,
 }) => {
-  const { can, member } = useSession();
-  const isNew = !workflowId || workflowId === "new";
-
-  const [templateId, setTemplateId] = useState<string | null>(isNew ? null : workflowId);
-  const [name, setName] = useState(isNew ? "Untitled workflow" : "");
-  const [steps, setSteps] = useState<DraftStep[]>(isNew ? [newStep("review")] : []);
-  /** Canvas coordinates per step id; persisted with the template on save. */
-  const [positions, setPositions] = useState<Record<string, Point>>({});
+  const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ id: string; dx: number; dy: number } | null>(null);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [template, setTemplate] = useState<Template | null>(null);
-  const [loading, setLoading] = useState(!isNew);
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [issues, setIssues] = useState<string[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [catalogOpen, setCatalogOpen] = useState(false);
-  const [renameOpen, setRenameOpen] = useState(false);
-  const [rejectOpen, setRejectOpen] = useState(false);
-  const [rejectReason, setRejectReason] = useState("");
-  const [runOpen, setRunOpen] = useState(false);
-  const [runRows, setRunRows] = useState<{ key: string; value: string }[]>([
-    { key: "", value: "" },
-  ]);
+  const trashRef = useRef<HTMLDivElement>(null);
 
-  const load = useCallback(async () => {
-    if (!templateId) return;
-    setLoading(true);
-    try {
-      const loaded = await getTemplate(templateId);
-      setTemplate(loaded);
-      setName(loaded.name);
-      setSteps(toDraft(loaded));
-      setPositions(layoutFor(loaded.steps));
-      setIssues([]);
-    } catch (caught) {
-      setIssues(issuesFrom(caught));
-    } finally {
-      setLoading(false);
-    }
-  }, [templateId]);
+  const [isCatalogOpen, setIsCatalogOpen] = useState(false);
+  const [nodes, setNodes] = useState<CanvasNodeData[]>([]);
+  const [edges, setEdges] = useState<CanvasEdge[]>([]);
+  const [settingsNodeId, setSettingsNodeId] = useState<string | null>(null);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  // Give every step a slot exactly once (new, added, or steps loaded without a
-  // stored position); never overwrite a position the user dragged.
-  useEffect(() => {
-    setPositions((current) => {
-      let changed = false;
-      const next: Record<string, Point> = {};
-      steps.forEach((step, index) => {
-        const existing = current[step.id];
-        if (existing) {
-          next[step.id] = existing;
-        } else {
-          next[step.id] = defaultSlot(index);
-          changed = true;
-        }
-      });
-      if (!changed && Object.keys(next).length === Object.keys(current).length) {
-        return current;
-      }
-      return next;
-    });
-  }, [steps]);
-
-  const selected = useMemo(
-    () => steps.find((step) => step.id === selectedId) ?? null,
-    [steps, selectedId],
+  // Editable workflow title (top-left of the subheader). Click the title to
+  // rename inline — Enter/blur commits, Escape reverts.
+  // TODO[BACKEND]: Hydrate this name from GET /api/workflows/:id when the
+  // canvas opens, and persist renames via PATCH /api/workflows/:id { name }.
+  const [workflowName, setWorkflowName] = useState<string>(
+    workflowId ? `Workflow Canvas (${workflowId})` : "Untitled Pipeline",
   );
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState<string>(workflowName);
 
-  const editable = template === null || template.reviewStatus !== "APPROVED";
-
-  const patchStep = (id: string, patch: Partial<DraftStep>) =>
-    setSteps((current) =>
-      current.map((step) => (step.id === id ? { ...step, ...patch } : step)),
-    );
-
-  const moveStep = (index: number, direction: -1 | 1) => {
-    const target = index + direction;
-    if (target < 0 || target >= steps.length) return;
-    const movingId = steps[index]!.id;
-    const targetId = steps[target]!.id;
-    setSteps((current) => {
-      const next = [...current];
-      [next[index], next[target]] = [next[target]!, next[index]!];
-      return next;
-    });
-    // Swapping order also swaps places on the canvas, so the map keeps reading
-    // top-to-bottom in execution order.
-    setPositions((current) => ({
-      ...current,
-      [movingId]: current[targetId] ?? defaultSlot(target),
-      [targetId]: current[movingId] ?? defaultSlot(index),
-    }));
-  };
-
-  /** Pointer-driven arrangement: the primary way to lay the map out. */
-  const startDrag = (event: React.PointerEvent<HTMLDivElement>, stepId: string) => {
-    if (!canArrange) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const point = positions[stepId] ?? defaultSlot(0);
-    const rect = canvas.getBoundingClientRect();
-    dragRef.current = {
-      id: stepId,
-      dx: event.clientX - rect.left + canvas.scrollLeft - point.x,
-      dy: event.clientY - rect.top + canvas.scrollTop - point.y,
-    };
-    setDraggingId(stepId);
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    } catch {
-      // Pointer capture is an optimisation; dragging still works without it.
+  const handleCommitRename = () => {
+    const trimmed = renameDraft.trim();
+    if (trimmed && trimmed !== workflowName) {
+      setWorkflowName(trimmed);
+      // TODO[BACKEND]: Persist the new title — PATCH
+      // /api/workflows/:workflowId { name: trimmed }.
     }
+    setRenameDraft(trimmed || workflowName);
+    setIsRenaming(false);
   };
 
-  const dragStep = (event: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-    const canvas = canvasRef.current;
-    if (!drag || !canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = Math.max(
-      0,
-      event.clientX - rect.left + canvas.scrollLeft - drag.dx,
-    );
-    const y = Math.max(
-      0,
-      event.clientY - rect.top + canvas.scrollTop - drag.dy,
-    );
-    setPositions((current) => ({ ...current, [drag.id]: { x, y } }));
+  // Monotonic creation stamps for wires: Date.now() can collide within a
+  // single millisecond, so force strictly increasing values to keep
+  // many-to-one (LIFO) ordering unambiguous.
+  const lastEdgeStamp = useRef(0);
+  const nextEdgeTimestamp = () => {
+    const now = Date.now();
+    lastEdgeStamp.current =
+      now > lastEdgeStamp.current ? now : lastEdgeStamp.current + 1;
+    return lastEdgeStamp.current;
   };
 
-  const endDrag = () => {
-    dragRef.current = null;
-    setDraggingId(null);
-  };
-
-  const removeStep = (id: string) => {
-    setSteps((current) => current.filter((step) => step.id !== id));
-    if (selectedId === id) setSelectedId(null);
-  };
-
-  const save = async (): Promise<Template | null> => {
-    setBusy(true);
-    setIssues([]);
-    setNotice(null);
-    try {
-      const payload = {
-        name: name.trim(),
-        // Positions travel with the steps: the arrangement is part of the template.
-        steps: steps.map((step) => ({
-          ...step,
-          position: positions[step.id] ?? defaultSlot(0),
-        })),
-      };
-      const result = templateId
-        ? await updateTemplate(templateId, payload)
-        : await createTemplate(payload);
-      setTemplate(result);
-      setTemplateId(result.templateId);
-      setName(result.name);
-      setSteps(toDraft(result));
-      setPositions(layoutFor(result.steps));
-      setNotice(
-        templateId
-          ? "Saved. The template was revalidated."
-          : "Template created as a pending draft.",
-      );
-      return result;
-    } catch (caught) {
-      setIssues(issuesFrom(caught));
-      return null;
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const approve = async () => {
-    const saved = await save();
-    const id = saved?.templateId ?? templateId;
-    if (!id) return;
-    setBusy(true);
-    try {
-      const approved = await approveTemplate(id);
-      setTemplate(approved);
-      setTemplateId(approved.templateId);
-      setNotice(`${approved.name} approved and activated.`);
-      setIssues([]);
-    } catch (caught) {
-      setIssues(issuesFrom(caught));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const reject = async () => {
-    if (!templateId || !rejectReason.trim()) return;
-    setBusy(true);
-    try {
-      const rejected = await rejectTemplate(templateId, rejectReason.trim());
-      setTemplate(rejected);
-      setNotice("Rejected with a reason — the template stays inactive.");
-      setRejectOpen(false);
-      setRejectReason("");
-      setIssues([]);
-    } catch (caught) {
-      setIssues(issuesFrom(caught));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const toggleActive = async () => {
-    if (!templateId || !template) return;
-    setBusy(true);
-    try {
-      const updated = template.isActive
-        ? await deactivateTemplate(templateId)
-        : await activateTemplate(templateId);
-      setTemplate(updated);
-      setNotice(
-        updated.isActive ? "Template is active." : "Template deactivated — history kept.",
-      );
-    } catch (caught) {
-      setIssues(issuesFrom(caught));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const startRun = async () => {
-    if (!templateId) return;
-    setBusy(true);
-    setIssues([]);
-    try {
-      const input: Record<string, string> = {};
-      runRows.forEach((row) => {
-        if (row.key.trim()) input[row.key.trim()] = row.value;
-      });
-      const detail = await startInstance({ templateId, input });
-      setRunOpen(false);
-      setRunRows([{ key: "", value: "" }]);
-      onOpenRun?.(detail.instance.instanceId);
-    } catch (caught) {
-      setIssues(issuesFrom(caught));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const canEdit = can("template:edit");
-  const canApprove = can("template:approve");
-  const canRun = can("workflow:start");
-  /** Arranging the map is an edit: read-only users get a fixed layout. */
-  const canArrange = editable && canEdit;
-
-  const rectOf = (stepId: string): Rect => ({
-    ...(positions[stepId] ?? defaultSlot(0)),
-    w: NODE_W,
-    h: NODE_H,
+  // Canvas Transform State
+  const [scale, setScale] = useState<number>(1);
+  const [position, setPosition] = useState<{ x: number; y: number }>({
+    x: 0,
+    y: 0,
   });
-  const graphWidth = Math.max(
-    720,
-    ...steps.map((step) => (positions[step.id]?.x ?? 0) + NODE_W + CANVAS_PAD),
+  const [isPanning, setIsPanning] = useState<boolean>(false);
+  const [startPan, setStartPan] = useState<{ x: number; y: number }>({
+    x: 0,
+    y: 0,
+  });
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+
+  // Active Connection Wire
+  const [activeWire, setActiveWire] = useState<{
+    sourceNodeId: string;
+    /** Port id the wire is anchored to ("output", "output-<index>", "data-source", ...). */
+    portType: string;
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+    color: string;
+  } | null>(null);
+
+  // Dragging to Trash States
+  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+  const [isOverTrash, setIsOverTrash] = useState<boolean>(false);
+  const [nodeSizes, setNodeSizes] = useState<
+    Record<string, { width: number; height: number }>
+  >({});
+
+  const handleUpdateNodeSize = useCallback(
+    (id: string, width: number, height: number) => {
+      setNodeSizes((prev) => {
+        if (prev[id]?.width === width && prev[id]?.height === height)
+          return prev;
+        return { ...prev, [id]: { width, height } };
+      });
+    },
+    [],
   );
-  const graphHeight = Math.max(
-    380,
-    ...steps.map((step) => (positions[step.id]?.y ?? 0) + NODE_H + CANVAS_PAD),
-  );
+
+  const checkHoveringTrash = (clientX: number, clientY: number) => {
+    if (!trashRef.current) return false;
+    const rect = trashRef.current.getBoundingClientRect();
+    return (
+      clientX >= rect.left &&
+      clientX <= rect.right &&
+      clientY >= rect.top &&
+      clientY <= rect.bottom
+    );
+  };
+
+  const handleNodeDragStart = (nodeId: string) => setDraggingNodeId(nodeId);
+  const handleNodeDragMove = (clientX: number, clientY: number) =>
+    setIsOverTrash(checkHoveringTrash(clientX, clientY));
+
+  const handleNodeDragEnd = (
+    nodeId: string,
+    clientX: number,
+    clientY: number,
+  ) => {
+    if (checkHoveringTrash(clientX, clientY)) {
+      setNodes((prev) => prev.filter((n) => n.id !== nodeId));
+      setEdges((prev) =>
+        prev.filter((e) => e.fromNodeId !== nodeId && e.toNodeId !== nodeId),
+      );
+    }
+    setDraggingNodeId(null);
+    setIsOverTrash(false);
+  };
+
+  const screenToCanvasCoords = (clientX: number, clientY: number) => {
+    if (!canvasRef.current) return { x: 0, y: 0 };
+    const rect = canvasRef.current.getBoundingClientRect();
+    return {
+      x: (clientX - rect.left - position.x) / scale,
+      y: (clientY - rect.top - position.y) / scale,
+    };
+  };
+
+  const handleStartConnection = (
+    sourceNodeId: string,
+    portType: string,
+    startPos: { x: number; y: number },
+    color: string,
+  ) => {
+    setActiveWire({
+      sourceNodeId,
+      portType,
+      startX: startPos.x,
+      startY: startPos.y,
+      currentX: startPos.x,
+      currentY: startPos.y,
+      color,
+    });
+  };
+
+  // LIFO wire detachment from a port: find every wire attached to this exact
+  // port — as its TARGET (input-style) or as its SOURCE (bi-directional
+  // tool/hub ports) — pick the most recently added one (Last-In), unplug it
+  // from the established set, and carry its free end on the cursor.
+  // Older wires on the same port stay connected untouched.
+  const handleTargetPortMouseDown = (
+    e: React.MouseEvent,
+    targetNodeId: string,
+    targetPort: string,
+  ) => {
+    e.stopPropagation();
+
+    const attached = edges.filter(
+      (edge) =>
+        (edge.toNodeId === targetNodeId && edge.toPort === targetPort) ||
+        (edge.fromNodeId === targetNodeId && edge.fromPort === targetPort),
+    );
+    if (attached.length === 0) return;
+
+    // Timestamps are monotonic; `>=` keeps array insertion order as the
+    // tiebreaker, so the newest wire always wins.
+    const latest = attached.reduce((newest, edge) =>
+      edge.timestamp >= newest.timestamp ? edge : newest,
+    );
+
+    // Unplug only that wire from the established set...
+    setEdges((prev) => prev.filter((edge) => edge.id !== latest.id));
+
+    // ...anchor whichever end was NOT grabbed. If the user grabbed the wire
+    // at its target end (classic input-port detach), the source end anchors
+    // and the free target end follows the cursor — identical to the old
+    // behavior. If they grabbed a bi-directional tool port (wire's source
+    // end), the target end anchors instead. Drop in empty space = wire stays
+    // deleted; drop on a valid port = handleConnectTarget re-establishes it.
+    const grabbedAsTarget =
+      latest.toNodeId === targetNodeId && latest.toPort === targetPort;
+    const anchorNodeId = grabbedAsTarget
+      ? latest.fromNodeId
+      : latest.toNodeId;
+    const anchorPort = grabbedAsTarget ? latest.fromPort : latest.toPort;
+    const start = getNodePortCoord(anchorNodeId, anchorPort);
+    const coords = screenToCanvasCoords(e.clientX, e.clientY);
+    setActiveWire({
+      sourceNodeId: anchorNodeId,
+      portType: anchorPort,
+      startX: start.x,
+      startY: start.y,
+      currentX: coords.x,
+      currentY: coords.y,
+      color: latest.color,
+    });
+  };
+
+  // Bi-directional port (Tool top-center ↔ AI-agent bottom `data`/`gen`):
+  // - No wires attached → start a fresh wire from this port.
+  // - Wires attached → LIFO-detach the newest one (either direction).
+  const handleBiDiPortMouseDown = (
+    e: React.MouseEvent,
+    nodeId: string,
+    portId: string,
+    color: string,
+  ) => {
+    e.stopPropagation();
+
+    const attached = edges.some(
+      (edge) =>
+        (edge.toNodeId === nodeId && edge.toPort === portId) ||
+        (edge.fromNodeId === nodeId && edge.fromPort === portId),
+    );
+
+    if (attached) {
+      handleTargetPortMouseDown(e, nodeId, portId);
+      return;
+    }
+
+    const start = getNodePortCoord(nodeId, portId);
+    handleStartConnection(nodeId, portId, start, color);
+  };
+
+  const handleConnectTarget = (
+    targetNodeId: string,
+    targetPort: string,
+  ) => {
+    if (!activeWire || activeWire.sourceNodeId === targetNodeId) return;
+
+    const fromNodeId = activeWire.sourceNodeId;
+    const fromPort = activeWire.portType;
+    const color = activeWire.color;
+
+    // Many-to-one: a target port may hold an ARRAY of incoming wires sharing
+    // the same targetNodeId + targetPortId. Only an exact duplicate (same
+    // source node AND port → same target port) is rejected.
+    setEdges((prev) => {
+      const duplicate = prev.some(
+        (e) =>
+          e.fromNodeId === fromNodeId &&
+          e.fromPort === fromPort &&
+          e.toNodeId === targetNodeId &&
+          e.toPort === targetPort,
+      );
+      if (duplicate) return prev;
+
+      const timestamp = nextEdgeTimestamp();
+      return [
+        ...prev,
+        {
+          id: `edge-${timestamp}`,
+          fromNodeId,
+          toNodeId: targetNodeId,
+          fromPort,
+          toPort: targetPort,
+          color,
+          timestamp,
+        },
+      ];
+    });
+    setActiveWire(null);
+  };
+
+  const handleMouseMoveWithWire = (e: React.MouseEvent) => {
+    if (isPanning) {
+      setPosition({ x: e.clientX - startPan.x, y: e.clientY - startPan.y });
+      return;
+    }
+    if (activeWire) {
+      const coords = screenToCanvasCoords(e.clientX, e.clientY);
+      setActiveWire((prev) =>
+        prev ? { ...prev, currentX: coords.x, currentY: coords.y } : null,
+      );
+    }
+  };
+
+  const handleMouseUpWithWire = () => {
+    setIsPanning(false);
+    if (activeWire) setActiveWire(null);
+  };
+
+  const centerCanvas = useCallback(() => {
+    if (!canvasRef.current) return;
+    const { clientWidth, clientHeight } = canvasRef.current;
+    setPosition({ x: clientWidth / 2, y: clientHeight / 2 });
+    setScale(1);
+  }, []);
+
+  useEffect(() => {
+    centerCanvas();
+  }, [centerCanvas]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    const canvasEl = canvasRef.current;
+    if (!canvasEl) return;
+    const handleWheelNative = (e: WheelEvent) => {
+      e.preventDefault();
+      const zoomFactor = 0.05;
+      const delta = e.deltaY < 0 ? zoomFactor : -zoomFactor;
+      setScale((prev) => Math.min(Math.max(0.4, prev + delta), 2.0));
+    };
+    canvasEl.addEventListener("wheel", handleWheelNative, { passive: false });
+    return () => canvasEl.removeEventListener("wheel", handleWheelNative);
+  }, []);
+
+  // ---- Touch support (mobile / tablet) ----------------------------------
+  // Touches map onto the editor's mouse logic: a touch on empty canvas pans
+  // the viewport; a touch on a node body drives that node's existing window
+  // mouse listeners via synthetic events. Ports keep native tap behavior.
+  const touchState = useRef<{
+    mode: "pan" | "node";
+    target: Element | null;
+  } | null>(null);
+  const lastNodeTap = useRef<{ el: Element | null; time: number }>({
+    el: null,
+    time: 0,
+  });
+
+  const dispatchMouse = (
+    type: string,
+    clientX: number,
+    clientY: number,
+    target: Element,
+  ) => {
+    target.dispatchEvent(
+      new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX,
+        clientY,
+      }),
+    );
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length !== 1) {
+      // Multi-touch: cancel panning (no pinch-zoom; zoom buttons exist).
+      touchState.current = null;
+      setIsPanning(false);
+      return;
+    }
+
+    const touch = e.touches[0];
+    const el = e.target as Element;
+    const onCanvasSurface =
+      el === canvasRef.current || el.id === "grid-surface";
+    const onPort = Boolean(el.closest(".connection-handle"));
+
+    if (onCanvasSurface) {
+      touchState.current = { mode: "pan", target: null };
+      setIsPanning(true);
+      setStartPan({
+        x: touch.clientX - position.x,
+        y: touch.clientY - position.y,
+      });
+      return;
+    }
+
+    // A touch on a node body starts a node drag by feeding the node's
+    // mouse-down handler; ports/buttons keep their native tap behavior.
+    const nodeRoot = el.closest(
+      '[title="Double-click to open settings"]',
+    );
+    if (!onPort && nodeRoot) {
+      touchState.current = { mode: "node", target: nodeRoot };
+      dispatchMouse("mousedown", touch.clientX, touch.clientY, el);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    const state = touchState.current;
+    if (!state || e.touches.length !== 1) return;
+    const touch = e.touches[0];
+
+    if (state.mode === "pan") {
+      setPosition({
+        x: touch.clientX - startPan.x,
+        y: touch.clientY - startPan.y,
+      });
+      return;
+    }
+
+    // One synthetic mousemove feeds both listeners: the node's window
+    // drag listener and the canvas React move handler (wire/pan bookkeeping).
+    dispatchMouse(
+      "mousemove",
+      touch.clientX,
+      touch.clientY,
+      canvasRef.current ?? (e.target as Element),
+    );
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const state = touchState.current;
+    touchState.current = null;
+    if (!state) return;
+
+    const touch = e.changedTouches[0];
+
+    if (state.mode === "node" && touch && state.target) {
+      // Release over whatever is under the finger: a port reconnects the
+      // carried wire, the trash zone deletes the node, empty space drops it.
+      const dropTarget =
+        document.elementFromPoint(touch.clientX, touch.clientY) ??
+        canvasRef.current;
+      if (dropTarget) {
+        dispatchMouse("mouseup", touch.clientX, touch.clientY, dropTarget);
+      }
+
+      // Double-tap opens node settings (mirrors the desktop double-click).
+      const now = Date.now();
+      if (
+        lastNodeTap.current.el === state.target &&
+        now - lastNodeTap.current.time < 320
+      ) {
+        dispatchMouse("dblclick", touch.clientX, touch.clientY, state.target);
+        lastNodeTap.current = { el: null, time: 0 };
+      } else {
+        lastNodeTap.current = { el: state.target, time: now };
+      }
+    }
+
+    // Mirror handleMouseUpWithWire: end panning and drop any carried wire.
+    handleMouseUpWithWire();
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (
+      e.target === canvasRef.current ||
+      (e.target as HTMLElement).id === "grid-surface"
+    ) {
+      setIsPanning(true);
+      setStartPan({ x: e.clientX - position.x, y: e.clientY - position.y });
+    }
+  };
+
+  const createNode = (type: string, pos: { x: number; y: number }) => {
+    const registryEntry = NODE_REGISTRY.find((item) => item.type === type);
+    const newNode: CanvasNodeData = {
+      id: `node-${Date.now()}`,
+      type,
+      position: pos,
+      config: registryEntry?.defaultConfig
+        ? { ...registryEntry.defaultConfig }
+        : {},
+    };
+    setNodes((prev) => [...prev, newNode]);
+    setIsCatalogOpen(false);
+  };
+
+  const handleSelectNode = (nodeDef: NodeDefinition) => {
+    if (!canvasRef.current) return;
+    const { clientWidth, clientHeight } = canvasRef.current;
+    const worldCenter = {
+      x: (clientWidth / 2 - position.x) / scale - 100,
+      y: (clientHeight / 2 - position.y) / scale - 50,
+    };
+    createNode(nodeDef.type, worldCenter);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const rawData = e.dataTransfer.getData("application/json");
+    if (!rawData) return;
+    try {
+      const nodeDef: NodeDefinition = JSON.parse(rawData);
+      const dropCoords = screenToCanvasCoords(e.clientX, e.clientY);
+      createNode(nodeDef.type, { x: dropCoords.x - 30, y: dropCoords.y - 30 });
+    } catch (err) {
+      console.error("Failed to parse dropped node:", err);
+    }
+  };
+
+  const handleUpdateNodePosition = (
+    id: string,
+    newPos: { x: number; y: number },
+  ) => {
+    setNodes((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, position: newPos } : n)),
+    );
+  };
+
+  const handleOpenSettings = (nodeId: string) => setSettingsNodeId(nodeId);
+  const handleCloseSettings = () => setSettingsNodeId(null);
+
+  const settingsNode = settingsNodeId
+    ? nodes.find((n) => n.id === settingsNodeId) ?? null
+    : null;
+
+  const handleUpdateNodeConfig = (
+    id: string,
+    patch: Record<string, unknown>,
+  ) => {
+    setNodes((prev) =>
+      prev.map((n) =>
+        n.id === id ? { ...n, config: { ...n.config, ...patch } } : n,
+      ),
+    );
+  };  const getNodePortCoord = (nodeId: string, portId: string) => {
+    const n = nodes.find((item) => item.id === nodeId);
+    if (!n) return { x: 0, y: 0 };
+
+    // Pixel-perfect: read the live port element for ANY node family,
+    // including dynamic branch ports like `output-2`.
+    const portEl = canvasRef.current?.querySelector(
+      `[data-port-id="${nodeId}-${portId}"]`,
+    );
+    if (portEl && canvasRef.current) {
+      const portRect = portEl.getBoundingClientRect();
+      const canvasRect = canvasRef.current.getBoundingClientRect();
+      return {
+        x:
+          (portRect.left +
+            portRect.width /2 -
+            canvasRect.left -
+            position.x) /
+          scale,
+        y:
+          (portRect.top + portRect.height / 2 - canvasRect.top - position.y) /
+          scale,
+      };
+    }
+
+    // Layout fallbacks used before the first paint (element not mounted yet).
+    const measuredWidth = nodeSizes[nodeId]?.width || 240;
+    const measuredHeight = nodeSizes[nodeId]?.height || 60;
+    if (n.type.startsWith("trigger-"))
+      return { x: n.position.x + measuredWidth, y: n.position.y + 32 };
+    if (n.type.startsWith("agent-")) {
+      // Compact card: input/output at vertical center; bottom edge hosts two
+      // bi-directional ports — `data` at 30% (emerald) and `gen` at 70% (sky).
+      if (portId === "data")
+        return {
+          x: n.position.x + measuredWidth * 0.3,
+          y: n.position.y + measuredHeight,
+        };
+      if (portId === "gen")
+        return {
+          x: n.position.x + measuredWidth * 0.7,
+          y: n.position.y + measuredHeight,
+        };
+      // Legacy center fallback (pre-paint only; the rendered port no longer exists).
+      if (portId === "tool")
+        return {
+          x: n.position.x + measuredWidth / 2,
+          y: n.position.y + measuredHeight,
+        };
+      return {
+        x: portId === "input" ? n.position.x : n.position.x + measuredWidth,
+        y: n.position.y + measuredHeight / 2,
+      };
+    }
+    if (n.type.startsWith("logic-")) {
+      // Header ≈54px, then tinted branch rows: h-7 + gap-3 + 4px top pad
+      // → row centers at +72 and +112. Input port centered at +30.
+      if (portId === "input") return { x: n.position.x, y: n.position.y + 30 };
+      const branchIndex = Number(portId.split("-")[1] ?? 0);
+      return {
+        x: n.position.x + measuredWidth,
+        y: n.position.y + 72 + branchIndex * 40,
+      };
+    }
+    if (n.type === "approval-human") {
+      // Same branch-zone layout as the If/Else node.
+      if (portId === "input")
+        return { x: n.position.x, y: n.position.y + 30 };
+      const row = portId === "output-rejected" ? 1 : 0;
+      return {
+        x: n.position.x + measuredWidth,
+        y: n.position.y + 72 + row * 40,
+      };
+    }
+    if (n.type === "document-generator") {
+      // Tool node: single bi-directional port at top-center.
+      return { x: n.position.x + measuredWidth / 2, y: n.position.y };
+    }
+    if (n.type.startsWith("connector-")) {
+      if (portId === "tool")
+        // Tool connectors (REST/Database): top-center bi-directional port.
+        return { x: n.position.x + measuredWidth / 2, y: n.position.y };
+      // Terminal connectors (Gmail/Telegram): input at vertical center.
+      return { x: n.position.x, y: n.position.y + 30 };
+    }
+    return { x: n.position.x, y: n.position.y };
+  };
+
+  const handleToggleFullscreen = async () => {
+    if (!containerRef.current) return;
+
+    try {
+      if (!document.fullscreenElement) {
+        await containerRef.current.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch (err) {
+      console.error("Fullscreen toggle failed:", err);
+    }
+  };
 
   return (
-    <div className="h-full w-full flex flex-col bg-background overflow-hidden relative">
+    <div
+      ref={containerRef}
+      className="h-full w-full flex flex-col bg-background select-none overflow-hidden relative"
+    >
       {/* Subheader */}
       <div className="h-14 bg-surface border-b border-subtle px-4 flex items-center justify-between z-20 shrink-0">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={onBack}
             className="p-2 rounded-lg text-muted hover:text-primary hover:bg-surface-hover transition-colors"
-            aria-label="Back to workflows"
           >
             <FiArrowLeft className="w-4 h-4" />
           </button>
           <div className="h-4 w-px bg-surface-hover" />
           <div className="min-w-0">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="text-xs font-semibold text-primary truncate max-w-[40vw]">
-                {name || "Untitled workflow"}
-              </span>
-              {template && (
-                <span
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono border ${STATUS_STYLE[template.reviewStatus]}`}
+            <div className="flex items-center gap-2">
+              {/* Inline rename: click the title to edit, Enter/blur commits,
+                  Escape reverts. */}
+              {isRenaming ? (
+                <input
+                  type="text"
+                  autoFocus
+                  aria-label="Workflow name"
+                  value={renameDraft}
+                  onChange={(e) => setRenameDraft(e.target.value)}
+                  onBlur={handleCommitRename}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleCommitRename();
+                    if (e.key === "Escape") {
+                      setRenameDraft(workflowName);
+                      setIsRenaming(false);
+                    }
+                  }}
+                  className="text-xs font-semibold text-primary bg-surface-hover border border-accent-primary/50 rounded px-1.5 py-0.5 focus:outline-none w-[200px] max-w-[45vw]"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRenameDraft(workflowName);
+                    setIsRenaming(true);
+                  }}
+                  title="Click to rename this workflow"
+                  className="group flex items-center gap-1.5 min-w-0 rounded border border-transparent px-1.5 py-0.5 -ml-1.5 hover:border-subtle hover:bg-surface-hover/60 transition-colors"
                 >
-                  {template.reviewStatus}
-                </span>
+                  <span className="text-xs font-semibold text-primary truncate group-hover:text-accent-primary transition-colors">
+                    {workflowName}
+                  </span>
+                  <FiEdit2 className="w-3 h-3 text-faint group-hover:text-accent-primary shrink-0" />
+                </button>
               )}
-              {template && (
-                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-surface-hover text-muted border border-strong">
-                  v{template.version}
-                </span>
-              )}
+              <span className="hidden sm:block px-1.5 py-0.5 rounded text-[10px] font-mono bg-accent-primary/10 text-accent-primary border border-accent-primary/20">
+                Draft
+              </span>
             </div>
             <p className="text-[10px] text-faint hidden sm:block">
-              {template
-                ? `${template.origin === "AI_DRAFTED" ? "AI draft" : "Manual"} · created ${formatDateTime(
-                    template.createdAt,
-                  )}`
-                : "New template — save it to start a review"}
+              Auto-saved 2 minutes ago
             </p>
           </div>
         </div>
@@ -581,765 +726,380 @@ export const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setRenameOpen(true)}
+            onClick={() => setIsCatalogOpen(true)}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-strong bg-surface-hover/60 hover:bg-surface-hover text-xs font-medium text-secondary transition-colors"
           >
-            <FiEdit2 className="w-3.5 h-3.5 text-accent-primary" />
-            <span className="hidden sm:inline">Rename</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setCatalogOpen(true)}
-            disabled={!editable}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-strong bg-surface-hover/60 hover:bg-surface-hover text-xs font-medium text-secondary transition-colors disabled:opacity-40"
-          >
             <FiPlus className="w-3.5 h-3.5 text-accent-primary" />
-            <span className="hidden sm:inline">Add step</span>
+            <span className="hidden sm:inline">Add Node</span>
           </button>
-          {template?.reviewStatus === "PENDING" && canApprove ? (
-            <>
-              <button
-                type="button"
-                onClick={() => setRejectOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-danger/40 text-danger hover:bg-danger/10 text-xs font-medium transition-colors"
-              >
-                <FiX className="w-3.5 h-3.5" />
-                Reject
-              </button>
-              <button
-                type="button"
-                onClick={() => void approve()}
-                disabled={busy}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-success/90 hover:bg-success text-white text-xs font-semibold disabled:opacity-60"
-              >
-                <FiCheck className="w-3.5 h-3.5" />
-                Approve
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={() => void save()}
-              disabled={busy || !editable}
-              title={
-                editable
-                  ? "Save name and steps"
-                  : "Approved templates are immutable — create a new version instead"
-              }
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-strong bg-surface-hover/60 hover:bg-surface-hover text-xs font-medium text-secondary transition-colors disabled:opacity-40"
-            >
-              <FiSave className="w-3.5 h-3.5 text-accent-primary" />
-              {busy ? "Saving…" : "Save"}
-            </button>
-          )}
           <button
             type="button"
-            onClick={() => setRunOpen(true)}
-            disabled={!template || template.reviewStatus !== "APPROVED" || !template.isActive || !canRun}
-            title={
-              !template || template.reviewStatus !== "APPROVED" || !template.isActive
-                ? "Only approved, active templates can run"
-                : "Start a run"
-            }
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold text-xs transition-colors shadow-sm shadow-accent-primary/40 disabled:opacity-40 disabled:shadow-none"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-strong bg-surface-hover/60 hover:bg-surface-hover text-xs font-medium text-secondary transition-colors"
           >
-            <FiPlay className="w-3.5 h-3.5" />
-            Run
+            <FiPlay className="w-3.5 h-3.5 text-success" />
+            <span className="hidden sm:inline">Test Run</span>
+          </button>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold text-xs transition-colors shadow-sm shadow-accent-primary/40"
+          >
+            <FiSave className="w-3.5 h-3.5 stroke-[2.5]" />
+            <span className="hidden sm:inline">Save</span>
           </button>
         </div>
       </div>
 
-      {/* Feedback banners */}
-      {(issues.length > 0 || notice) && (
-        <div className="px-4 py-3 border-b border-subtle bg-surface/60 shrink-0">
-          {notice && (
-            <div className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs text-success">
-              {notice}
-            </div>
-          )}
-          {issues.length > 0 && (
-            <div className="mt-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger space-y-1">
-              <p className="font-semibold">The server rejected this change:</p>
-              {issues.map((issue, index) => (
-                <p key={index} className="font-mono">
-                  · {issue}
-                </p>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="flex-1 flex overflow-hidden">
-        {/* Canvas */}
+      {/* // UI-REGION: Canvas — custom node drawing surface (pan/zoom
+          transform layer, SVG wire layer, placed nodes, trash zone, zoom
+          controls). */}
+      {/* Canvas */}
+      <div
+        ref={canvasRef}
+        id="grid-surface"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMoveWithWire}
+        onMouseUp={handleMouseUpWithWire}
+        onMouseLeave={handleMouseUpWithWire}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        style={{
+          backgroundPosition: `${position.x}px ${position.y}px`,
+          backgroundSize: `${24 * scale}px ${24 * scale}px`,
+          backgroundImage: `radial-gradient(circle, var(--border-strong) 1px, transparent 1px)`,
+        }}
+        className={`flex-1 relative overflow-hidden bg-background touch-none ${
+          isPanning
+            ? "cursor-grabbing"
+            : activeWire
+              ? "cursor-crosshair"
+              : "cursor-grab"
+        }`}
+      >
         <div
-          className="flex-1 relative overflow-auto"
           style={{
-            backgroundImage: "radial-gradient(circle, var(--border-strong) 1px, transparent 1px)",
-            backgroundSize: "24px 24px",
+            transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
+            transformOrigin: "0 0",
           }}
+          className="absolute top-0 left-0 pointer-events-none"
         >
-          {loading ? (
-            <p className="p-8 text-xs text-muted">Loading template…</p>
-          ) : (
-            <div
-              ref={canvasRef}
-              className="relative"
-              style={{ minWidth: 720, width: graphWidth, height: graphHeight }}
-            >
-              <svg
-                className="absolute inset-0 pointer-events-none"
-                width={graphWidth}
-                height={graphHeight}
-                aria-hidden="true"
-              >
-                <defs>
-                  <marker
-                    id="case-step-arrow"
-                    markerWidth="8"
-                    markerHeight="8"
-                    refX="7"
-                    refY="4"
-                    orient="auto"
-                  >
-                    <path d="M0,0 L8,4 L0,8 Z" fill="var(--accent-primary)" opacity="0.55" />
-                  </marker>
-                </defs>
-                {steps.map((step, index) => {
-                  const from =
-                    index === 0 ? TRIGGER_RECT : rectOf(steps[index - 1]!.id);
-                  return (
-                    <path
-                      key={`edge-${step.id}`}
-                      d={edgePath(from, rectOf(step.id))}
-                      fill="none"
-                      stroke="var(--accent-primary)"
-                      strokeOpacity="0.45"
-                      strokeWidth="1.5"
-                      markerEnd="url(#case-step-arrow)"
-                    />
-                  );
-                })}
-              </svg>
+          {/* SVG Connector Layer - Locked at z-0 so lines pass BEHIND all cards */}
+          <svg className="absolute top-0 left-0 overflow-visible w-1 h-1 pointer-events-none z-0">
+            {/* 1. Established Connections */}
+            {edges.map((edge) => {
+              const start = getNodePortCoord(edge.fromNodeId, edge.fromPort);
+              const end = getNodePortCoord(edge.toNodeId, edge.toPort);
 
-              {/* Manual start marker — the source every flow begins from. */}
-              <div
-                className="absolute rounded-lg border border-warning/30 bg-warning/10 px-3 py-2"
-                style={{
-                  left: TRIGGER_RECT.x,
-                  top: TRIGGER_RECT.y,
-                  width: TRIGGER_RECT.w,
-                  height: TRIGGER_RECT.h,
-                }}
-              >
-                <p className="text-[10px] font-bold tracking-wider uppercase text-warning">
-                  Manual start
-                </p>
-                <p className="mt-1 text-[10px] text-muted leading-snug">
-                  A run is created by an operator with case data.
-                </p>
-              </div>
+              const dx = Math.max(end.x - start.x, 30);
+              const curvature = 0.5;
+              const cp1x = start.x + dx * curvature;
+              const cp1y = start.y;
+              const cp2x = end.x - dx * curvature;
+              const cp2y = end.y;
 
-              {steps.length === 0 && (
-                <div
-                  className="absolute w-80 border border-dashed border-subtle rounded-2xl p-6 bg-surface/80 text-center"
-                  style={{ left: CANVAS_PAD, top: FIRST_ROW_Y }}
-                >
-                  <h3 className="text-sm font-semibold text-primary">No steps yet</h3>
-                  <p className="text-xs text-muted mt-1 mb-3">
-                    Every workflow starts with a review step.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSteps([newStep("review")]);
-                      setCatalogOpen(true);
-                    }}
-                    className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold text-xs"
-                  >
-                    <FiPlus className="w-4 h-4" />
-                    Add first step
-                  </button>
+              return (
+                <g key={edge.id} className="group/wire pointer-events-auto">
+                  {/* Invisible wider hit-area */}
+                  <path
+                    d={`M ${start.x} ${start.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${end.x} ${end.y}`}
+                    fill="none"
+                    stroke="transparent"
+                    strokeWidth="16"
+                    className="cursor-pointer"
+                  />
+
+                  {/* Visible Cable */}
+                  <path
+                    d={`M ${start.x} ${start.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${end.x} ${end.y}`}
+                    fill="none"
+                    style={{ stroke: edge.color }}
+                    strokeWidth="2.5"
+                    className="opacity-90 group-hover/wire:opacity-100 group-hover/wire:brightness-125"
+                  />
+                </g>
+              );
+            })}
+
+            {/* 2. Live Dragged Connection Line */}
+            {activeWire && (
+              <path
+                d={
+                  activeWire.portType === "data-source"
+                    ? `M ${activeWire.startX} ${activeWire.startY} C ${activeWire.startX} ${
+                        activeWire.startY +
+                        Math.abs(activeWire.currentY - activeWire.startY) *
+                          0.5 +
+                        40
+                      }, ${activeWire.currentX} ${
+                        activeWire.currentY -
+                        Math.abs(activeWire.currentY - activeWire.startY) *
+                          0.5 -
+                        40
+                      }, ${activeWire.currentX} ${activeWire.currentY}`
+                    : `M ${activeWire.startX} ${activeWire.startY} C ${
+                        activeWire.startX +
+                        Math.abs(activeWire.currentX - activeWire.startX) *
+                          0.5 +
+                        40
+                      } ${activeWire.startY}, ${
+                        activeWire.currentX -
+                        Math.abs(activeWire.currentX - activeWire.startX) *
+                          0.5 -
+                        40
+                      } ${activeWire.currentY}, ${activeWire.currentX} ${activeWire.currentY}`
+                }
+                fill="none"
+                style={{ stroke: activeWire.color }}
+                strokeWidth="2.5"
+                strokeDasharray="4 4"
+              />
+            )}
+          </svg>
+
+          {/* Empty State */}
+          {nodes.length === 0 && (
+            <div className="absolute top-0 left-0 -translate-x-1/2 -translate-y-1/2 pointer-events-auto">
+              <div className="border border-dashed border-subtle rounded-2xl p-8 bg-surface/80 backdrop-blur-sm text-center w-80 shadow-2xl">
+                <div className="h-10 w-10 rounded-xl bg-accent-primary/10 border border-accent-primary/20 text-accent-primary flex items-center justify-center mx-auto mb-3">
+                  <FiZap className="w-5 h-5" />
                 </div>
-              )}
-
-              {steps.map((step, index) => {
-                const meta = STEP_META[step.type];
-                const Icon = meta.icon;
-                const isSelected = selectedId === step.id;
-                const point = positions[step.id] ?? defaultSlot(index);
-
-                return (
-                  <div
-                    key={step.id}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`Step ${index + 1}: ${step.name || "Untitled step"} — drag to arrange`}
-                    onPointerDown={(event) => {
-                      setSelectedId(step.id);
-                      startDrag(event, step.id);
-                    }}
-                    onPointerMove={dragStep}
-                    onPointerUp={endDrag}
-                    onPointerCancel={endDrag}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        setSelectedId(step.id);
-                      }
-                    }}
-                    style={{
-                      left: point.x,
-                      top: point.y,
-                      width: NODE_W,
-                      height: NODE_H,
-                      touchAction: "none",
-                    }}
-                    className={`absolute select-none overflow-hidden rounded-xl border bg-surface p-3 shadow-sm text-left ${
-                      canArrange ? "cursor-grab active:cursor-grabbing" : "cursor-default"
-                    } ${
-                      isSelected
-                        ? "border-accent-primary/60 ring-1 ring-accent-primary/30"
-                        : "border-subtle hover:border-strong"
-                    } ${draggingId === step.id ? "shadow-lg z-20" : "z-10"} ${
-                      draggingId === step.id ? "" : "transition-colors"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="text-[10px] font-mono text-faint">
-                        STEP {index + 1}
-                      </span>
-                      <span
-                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium ${meta.color}`}
-                      >
-                        <Icon className="w-3 h-3" />
-                        {meta.label}
-                      </span>
-                    </div>
-                    <p className="mt-1.5 text-sm font-semibold text-primary truncate">
-                      {step.name || "Untitled step"}
-                    </p>
-                    <p className="mt-0.5 text-[11px] leading-snug text-muted line-clamp-2">
-                      {step.description}
-                    </p>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] text-faint">
-                      {step.assignedRole && (
-                        <span className="px-1.5 py-0.5 rounded bg-surface-hover border border-subtle">
-                          role: {step.assignedRole}
-                        </span>
-                      )}
-                      {step.channel && (
-                        <span className="px-1.5 py-0.5 rounded bg-surface-hover border border-subtle">
-                          via {step.channel}
-                        </span>
-                      )}
-                      {step.acceptedFileTypes && step.acceptedFileTypes.length > 0 && (
-                        <span className="px-1.5 py-0.5 rounded bg-surface-hover border border-subtle uppercase">
-                          accepts {step.acceptedFileTypes.join("/")}
-                        </span>
-                      )}
-                    </div>
-
-                    {canArrange && (
-                      <div
-                        className="absolute bottom-1.5 right-1.5 flex gap-1"
-                        onPointerDown={(event) => event.stopPropagation()}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => moveStep(index, -1)}
-                          disabled={index === 0}
-                          className="p-1 rounded border border-subtle bg-surface text-muted hover:text-primary disabled:opacity-30"
-                          aria-label="Move step earlier"
-                          title="Move earlier"
-                        >
-                          <FiChevronLeft className="w-3 h-3" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => moveStep(index, 1)}
-                          disabled={index === steps.length - 1}
-                          className="p-1 rounded border border-subtle bg-surface text-muted hover:text-primary disabled:opacity-30"
-                          aria-label="Move step later"
-                          title="Move later"
-                        >
-                          <FiChevronRight className="w-3 h-3" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                <h3 className="text-sm font-semibold text-primary">
+                  Empty Pipeline Canvas
+                </h3>
+                <p className="text-xs text-muted mt-1 mb-4 leading-relaxed">
+                  Click or drag your first trigger node into the workspace to
+                  begin.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setIsCatalogOpen(true)}
+                  className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold text-xs transition-colors shadow-md shadow-accent-primary/40"
+                >
+                  <FiPlus className="w-4 h-4 stroke-[2.5]" />
+                  <span>Add First Node</span>
+                </button>
+              </div>
             </div>
           )}
+
+          {/* Placed Nodes Layer */}
+          <div className="relative z-20 pointer-events-auto">
+            {nodes.map((node) => {
+              if (node.type.startsWith("trigger-")) {
+                return (
+                <TriggerNode
+                  key={node.id}
+                  node={node}
+                  scale={scale}
+                  onUpdatePosition={handleUpdateNodePosition}
+                  onStartConnection={handleStartConnection}
+                  onUpdateSize={handleUpdateNodeSize}
+                  onUpdateConfig={handleUpdateNodeConfig}
+                  onOpenSettings={handleOpenSettings}
+                  onDragStart={handleNodeDragStart}
+                  onDragMove={handleNodeDragMove}
+                  onDragEnd={handleNodeDragEnd}
+                />
+                );
+              }
+              if (node.type.startsWith("agent-")) {
+                return (                  <AINode
+                    key={node.id}
+                    node={node}
+                    scale={scale}
+                    onUpdateSize={handleUpdateNodeSize}
+                    onUpdatePosition={handleUpdateNodePosition}
+                    onStartConnection={handleStartConnection}
+                    onConnectTarget={handleConnectTarget}
+                    onTargetPortMouseDown={handleTargetPortMouseDown}
+                    onBiDiPortMouseDown={handleBiDiPortMouseDown}
+                    toCanvasCoords={screenToCanvasCoords}
+                    onOpenSettings={handleOpenSettings}
+                    onDragStart={handleNodeDragStart}
+                    onDragMove={handleNodeDragMove}
+                    onDragEnd={handleNodeDragEnd}
+                  />
+                );
+              }
+              if (node.type.startsWith("logic-")) {
+                return (
+                <LogicNode
+                  key={node.id}
+                  node={node}
+                  scale={scale}
+                  onUpdateSize={handleUpdateNodeSize}
+                  onUpdatePosition={handleUpdateNodePosition}
+                  onUpdateConfig={handleUpdateNodeConfig}
+                  onStartConnection={handleStartConnection}
+                  onConnectTarget={handleConnectTarget}
+                  onTargetPortMouseDown={handleTargetPortMouseDown}
+                  toCanvasCoords={screenToCanvasCoords}
+                  onOpenSettings={handleOpenSettings}
+                  onDragStart={handleNodeDragStart}
+                  onDragMove={handleNodeDragMove}
+                  onDragEnd={handleNodeDragEnd}
+                />
+                );
+              }
+              if (node.type.startsWith("connector-")) {
+                return (
+                  <ConnectorNode
+                    key={node.id}
+                    node={node}
+                    scale={scale}
+                    onUpdateSize={handleUpdateNodeSize}
+                    onUpdatePosition={handleUpdateNodePosition}
+                    onUpdateConfig={handleUpdateNodeConfig}
+                    onStartConnection={handleStartConnection}
+                    onConnectTarget={handleConnectTarget}
+                    onTargetPortMouseDown={handleTargetPortMouseDown}
+                    onBiDiPortMouseDown={handleBiDiPortMouseDown}
+                    toCanvasCoords={screenToCanvasCoords}
+                    onOpenSettings={handleOpenSettings}
+                    onDragStart={handleNodeDragStart}
+                    onDragMove={handleNodeDragMove}
+                    onDragEnd={handleNodeDragEnd}
+                  />
+                );
+              }
+              if (node.type === "approval-human") {
+                return (
+                  <ApprovalNode
+                    key={node.id}
+                    node={node}
+                    scale={scale}
+                    onUpdateSize={handleUpdateNodeSize}
+                    onUpdatePosition={handleUpdateNodePosition}
+                    onUpdateConfig={handleUpdateNodeConfig}
+                    onStartConnection={handleStartConnection}
+                    onConnectTarget={handleConnectTarget}
+                    onTargetPortMouseDown={handleTargetPortMouseDown}
+                    toCanvasCoords={screenToCanvasCoords}
+                    onOpenSettings={handleOpenSettings}
+                    onDragStart={handleNodeDragStart}
+                    onDragMove={handleNodeDragMove}
+                    onDragEnd={handleNodeDragEnd}
+                  />
+                );
+              }
+              if (node.type === "document-generator") {
+                return (
+                  <DocumentNode
+                    key={node.id}
+                    node={node}
+                    scale={scale}
+                    onUpdateSize={handleUpdateNodeSize}
+                    onUpdatePosition={handleUpdateNodePosition}
+                    onUpdateConfig={handleUpdateNodeConfig}
+                    onStartConnection={handleStartConnection}
+                    onConnectTarget={handleConnectTarget}
+                    onTargetPortMouseDown={handleTargetPortMouseDown}
+                    onBiDiPortMouseDown={handleBiDiPortMouseDown}
+                    toCanvasCoords={screenToCanvasCoords}
+                    onOpenSettings={handleOpenSettings}
+                    onDragStart={handleNodeDragStart}
+                    onDragMove={handleNodeDragMove}
+                    onDragEnd={handleNodeDragEnd}
+                  />
+                );
+              }
+              return null;
+            })}
+          </div>
+
+          {/* Wire-endpoint detachment now lives on the target ports themselves
+              (LIFO grab) — see handleTargetPortMouseDown. */}
         </div>
 
-        {/* Step inspector */}
-        <aside className="w-80 shrink-0 border-l border-subtle bg-surface overflow-y-auto">
-          {selected ? (
-            <div className="p-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-primary">Step settings</h3>
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(null)}
-                  className="p-1 text-muted hover:text-primary"
-                  aria-label="Close step settings"
-                >
-                  <FiX className="w-4 h-4" />
-                </button>
-              </div>
+        {/* Floating Drop-To-Delete Trash Zone */}
+        <div
+          ref={trashRef}
+          className={`absolute bottom-6 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 pointer-events-none ${
+            draggingNodeId
+              ? "opacity-100 translate-y-0 scale-100"
+              : "opacity-0 translate-y-8 scale-95"
+          }`}
+        >
+          <div
+            className={`flex items-center gap-2.5 px-5 py-2.5 rounded-full border shadow-2xl transition-all duration-200 ${
+              isOverTrash
+                ? "bg-danger/10 border-danger text-danger scale-105 ring-2 ring-danger/40"
+                : "bg-surface border-strong text-secondary"
+            }`}
+          >
+            <FiTrash2
+              className={`w-4 h-4 shrink-0 transition-transform duration-200 ${
+                isOverTrash
+                  ? "scale-110 text-danger animate-bounce"
+                  : "text-muted"
+              }`}
+            />
+            <span className="text-xs font-semibold whitespace-nowrap">
+              {isOverTrash ? "Release to Delete" : "Drag here to remove"}
+            </span>
+          </div>
+        </div>
 
-              <label className="block">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                  Name
-                </span>
-                <input
-                  value={selected.name}
-                  onChange={(event) => patchStep(selected.id, { name: event.target.value })}
-                  disabled={!editable}
-                  className="mt-1 w-full bg-background border border-subtle rounded-lg px-2.5 py-1.5 text-xs text-primary focus:outline-none focus:border-accent-primary/50 disabled:opacity-60"
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                  Type
-                </span>
-                <select
-                  value={selected.type}
-                  onChange={(event) => {
-                    const type = event.target.value as StepType;
-                    patchStep(selected.id, {
-                      type,
-                      channel: type === "notification" ? (selected.channel ?? "email") : undefined,
-                      acceptedFileTypes:
-                        type === "intake"
-                          ? (selected.acceptedFileTypes ?? ["pdf", "jpg", "png"])
-                          : undefined,
-                      instruction:
-                        type === "intake"
-                          ? (selected.instruction ??
-                            "Read the document and extract the facts the approver needs.")
-                          : undefined,
-                    });
-                  }}
-                  disabled={!editable}
-                  className="mt-1 w-full bg-background border border-subtle rounded-lg px-2.5 py-1.5 text-xs text-primary focus:outline-none focus:border-accent-primary/50 disabled:opacity-60"
-                >
-                  {STEP_ORDER.map((type) => (
-                    <option key={type} value={type}>
-                      {STEP_META[type].label}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-[10px] text-faint">{STEP_META[selected.type].blurb}</p>
-              </label>
-
-              <label className="block">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                  Description
-                </span>
-                <textarea
-                  value={selected.description}
-                  onChange={(event) =>
-                    patchStep(selected.id, { description: event.target.value })
-                  }
-                  rows={4}
-                  disabled={!editable}
-                  className="mt-1 w-full bg-background border border-subtle rounded-lg px-2.5 py-1.5 text-xs text-primary focus:outline-none focus:border-accent-primary/50 disabled:opacity-60"
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                  Assigned role (optional)
-                </span>
-                <select
-                  value={selected.assignedRole ?? ""}
-                  onChange={(event) =>
-                    patchStep(selected.id, {
-                      assignedRole: event.target.value || undefined,
-                    })
-                  }
-                  disabled={!editable}
-                  className="mt-1 w-full bg-background border border-subtle rounded-lg px-2.5 py-1.5 text-xs text-primary focus:outline-none focus:border-accent-primary/50 disabled:opacity-60"
-                >
-                  <option value="">No specific role</option>
-                  {ROLES.map((role) => (
-                    <option key={role} value={role}>
-                      {role}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {selected.type === "notification" && (
-                <label className="block">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                    Channel
-                  </span>
-                  <select
-                    value={selected.channel ?? "email"}
-                    onChange={(event) =>
-                      patchStep(selected.id, { channel: event.target.value })
-                    }
-                    disabled={!editable}
-                    className="mt-1 w-full bg-background border border-subtle rounded-lg px-2.5 py-1.5 text-xs text-primary focus:outline-none focus:border-accent-primary/50 disabled:opacity-60"
-                  >
-                    {CHANNELS.map((channel) => (
-                      <option key={channel} value={channel}>
-                        {channel}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-
-              {selected.type === "intake" && (
-                <>
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                      Accepted files
-                    </span>
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {FILE_TYPES.map((fileType) => {
-                        const active = (selected.acceptedFileTypes ?? []).includes(fileType);
-                        return (
-                          <button
-                            key={fileType}
-                            type="button"
-                            disabled={!editable}
-                            onClick={() => {
-                              const current = selected.acceptedFileTypes ?? [];
-                              const next = active
-                                ? current.filter((entry) => entry !== fileType)
-                                : [...current, fileType];
-                              patchStep(selected.id, {
-                                acceptedFileTypes: next.length > 0 ? next : [fileType],
-                              });
-                            }}
-                            className={`px-2 py-1 rounded border text-[10px] font-mono uppercase transition-colors disabled:opacity-60 ${
-                              active
-                                ? "border-accent-primary/50 bg-accent-primary/10 text-accent-primary"
-                                : "border-subtle text-muted hover:border-strong"
-                            }`}
-                          >
-                            {fileType}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <label className="block">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                      What should the AI read?
-                    </span>
-                    <textarea
-                      value={selected.instruction ?? ""}
-                      onChange={(event) =>
-                        patchStep(selected.id, { instruction: event.target.value })
-                      }
-                      rows={3}
-                      placeholder="e.g. Extract the complaint reference, date, location and the requested remedy."
-                      disabled={!editable}
-                      className="mt-1 w-full bg-background border border-subtle rounded-lg px-2.5 py-1.5 text-xs text-primary focus:outline-none focus:border-accent-primary/50 disabled:opacity-60"
-                    />
-                  </label>
-
-                  <p className="rounded-lg border border-demo/30 bg-demo/10 px-3 py-2 text-[10px] text-demo leading-relaxed">
-                    The run pauses here until an operator uploads one of these files.
-                    The server extracts the text (PDF text layer or OCR) and the AI
-                    reads it before the next step can run.
-                  </p>
-                </>
-              )}
-
-              <button
-                type="button"
-                onClick={() => removeStep(selected.id)}
-                disabled={!editable}
-                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-danger/40 text-danger hover:bg-danger/10 text-xs font-medium disabled:opacity-40"
-              >
-                <FiTrash2 className="w-3.5 h-3.5" />
-                Remove step
-              </button>
-
-              <p className="text-[10px] text-faint leading-relaxed">
-                Rules: the first step must be a review, an approval must follow a
-                validation, and notification channels are limited to email and
-                Telegram.
-              </p>
-            </div>
-          ) : (
-            <div className="p-5 text-xs text-muted space-y-3">
-              <h3 className="text-sm font-semibold text-primary">Template</h3>
-              <p>
-                {steps.length} step{steps.length === 1 ? "" : "s"} in execution order.
-                Select a step to edit it.
-              </p>
-              {template && (
-                <div className="space-y-1.5 font-mono text-[10px] text-faint">
-                  <p>id: {template.templateId}</p>
-                  <p>origin: {template.origin}</p>
-                  <p>created by: {template.createdBy?.slice(0, 12) ?? "—"}</p>
-                  <p>updated: {formatDateTime(template.updatedAt)}</p>
-                </div>
-              )}
-              {template && can("template:deactivate") && template.reviewStatus === "APPROVED" && (
-                <button
-                  type="button"
-                  onClick={() => void toggleActive()}
-                  className="w-full px-3 py-1.5 rounded-lg border border-strong text-[11px] text-secondary hover:bg-surface-hover"
-                >
-                  {template.isActive ? "Deactivate template" : "Activate template"}
-                </button>
-              )}
-              {template?.reviewStatus === "PENDING" && (
-                <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] text-warning flex items-start gap-2">
-                  <FiInfo className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                  <span>
-                    Pending review
-                    {template.reviewComments ? `: ${template.reviewComments}` : "."} An
-                    operator or admin must approve it before it can run.
-                  </span>
-                </div>
-              )}
-              {template?.reviews && template.reviews.length > 0 && (
-                <div>
-                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted mb-1.5">
-                    Review history
-                  </h4>
-                  <ul className="space-y-1">
-                    {template.reviews.map((review) => (
-                      <li
-                        key={review.reviewId}
-                        className="flex items-center justify-between gap-2 text-[10px] text-muted"
-                      >
-                        <span
-                          className={`px-1.5 py-0.5 rounded border ${
-                            review.status === "APPROVED"
-                              ? "border-success/30 text-success bg-success/10"
-                              : review.status === "REJECTED"
-                                ? "border-danger/30 text-danger bg-danger/10"
-                                : "border-warning/30 text-warning bg-warning/10"
-                          }`}
-                        >
-                          {review.status}
-                        </span>
-                        <span className="truncate">
-                          {review.reviewedBy ? review.reviewedBy.slice(0, 10) : "system"}
-                        </span>
-                        <span className="font-mono">{formatDateTime(review.createdAt)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-        </aside>
+        {/* Viewport Zoom Controls */}
+        <div className="absolute bottom-5 right-5 flex items-center gap-1 bg-surface/90 backdrop-blur border border-subtle rounded-lg p-1 shadow-lg z-20">
+          <button
+            type="button"
+            onClick={() => setScale((s) => Math.min(s + 0.1, 2.0))}
+            className="p-2 text-muted hover:text-primary hover:bg-surface-hover rounded transition-colors"
+          >
+            <FiZoomIn className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setScale((s) => Math.max(s - 0.1, 0.4))}
+            className="p-2 text-muted hover:text-primary hover:bg-surface-hover rounded transition-colors"
+          >
+            <FiZoomOut className="w-4 h-4" />
+          </button>
+          <span className="text-[11px] font-mono text-muted px-1.5 min-w-[42px] text-center select-none">
+            {Math.round(scale * 100)}%
+          </span>
+          <div className="h-3 w-px bg-surface-hover" />
+          <button
+            type="button"
+            onClick={centerCanvas}
+            className="px-2.5 py-1.5 text-[11px] text-muted hover:text-primary hover:bg-surface-hover rounded transition-colors"
+          >
+            Reset
+          </button>
+          <div className="h-3 w-px bg-surface-hover" />
+          <button
+            type="button"
+            onClick={handleToggleFullscreen}
+            className="p-2 text-muted hover:text-primary hover:bg-surface-hover rounded transition-colors"
+            title={isFullscreen ? "Exit Fullscreen" : "Fullscreen Canvas"}
+          >
+            {isFullscreen ? (
+              <FiMinimize2 className="w-3.5 h-3.5 text-accent-primary" />
+            ) : (
+              <FiMaximize2 className="w-3.5 h-3.5" />
+            )}
+          </button>
+        </div>
       </div>
 
-      {/* Footer identity (who is saving) */}
-      {member && (
-        <div className="h-8 shrink-0 border-t border-subtle bg-surface px-4 flex items-center justify-between text-[10px] text-faint">
-          <span>
-            Acting as {member.displayName} ({initials(member.displayName)})
-          </span>
-          <span>
-            {canEdit ? "edit allowed" : "read-only"} · server enforces permissions
-          </span>
-        </div>
-      )}
+      {/* // UI-REGION: Sidebar — Node Library (draggable node palette modal) */}
+      <NodeCatalogModal
+        isOpen={isCatalogOpen}
+        onClose={() => setIsCatalogOpen(false)}
+        onSelectNode={handleSelectNode}
+      />
 
-      {/* Add-step catalog */}
-      {catalogOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-surface border border-subtle rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
-            <div className="p-4 border-b border-subtle flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-primary">Add a step</h3>
-              <button
-                type="button"
-                onClick={() => setCatalogOpen(false)}
-                className="p-1 text-muted hover:text-primary"
-                aria-label="Close catalog"
-              >
-                <FiX className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {STEP_ORDER.map((type) => {
-                const meta = STEP_META[type];
-                const Icon = meta.icon;
-                return (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => {
-                      const step = newStep(type);
-                      setSteps((current) => [...current, step]);
-                      setSelectedId(step.id);
-                      setCatalogOpen(false);
-                    }}
-                    className="text-left p-3 rounded-xl border border-subtle hover:border-accent-primary/50 hover:bg-surface-hover/60 transition-colors"
-                  >
-                    <span
-                      className={`inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded border text-[10px] font-medium ${meta.color}`}
-                    >
-                      <Icon className="w-3 h-3" />
-                      {meta.label}
-                    </span>
-                    <p className="mt-2 text-[11px] text-muted">{meta.blurb}</p>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Rename */}
-      {renameOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-surface border border-subtle rounded-2xl w-full max-w-sm shadow-2xl p-5 space-y-3">
-            <h3 className="text-sm font-semibold text-primary">Rename template</h3>
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              autoFocus
-              className="w-full bg-background border border-subtle rounded-lg px-3 py-2 text-xs text-primary focus:outline-none focus:border-accent-primary/50"
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setRenameOpen(false)}
-                className="px-3 py-1.5 rounded-lg border border-strong text-xs text-secondary hover:bg-surface-hover"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setRenameOpen(false);
-                  void save();
-                }}
-                className="px-3 py-1.5 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast text-xs font-semibold"
-              >
-                Save name
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Reject with reason */}
-      {rejectOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-surface border border-subtle rounded-2xl w-full max-w-sm shadow-2xl p-5 space-y-3">
-            <h3 className="text-sm font-semibold text-primary">Reject template</h3>
-            <p className="text-[11px] text-muted">
-              A rejection must carry a reason. The template stays inactive.
-            </p>
-            <textarea
-              value={rejectReason}
-              onChange={(event) => setRejectReason(event.target.value)}
-              rows={3}
-              autoFocus
-              className="w-full bg-background border border-subtle rounded-lg px-3 py-2 text-xs text-primary focus:outline-none focus:border-danger/50"
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setRejectOpen(false)}
-                className="px-3 py-1.5 rounded-lg border border-strong text-xs text-secondary hover:bg-surface-hover"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void reject()}
-                disabled={!rejectReason.trim() || busy}
-                className="px-3 py-1.5 rounded-lg bg-danger text-white text-xs font-semibold disabled:opacity-50"
-              >
-                Reject
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Start run */}
-      {runOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-surface border border-subtle rounded-2xl w-full max-w-lg shadow-2xl p-5 space-y-3">
-            <h3 className="text-sm font-semibold text-primary">Start a run</h3>
-            <p className="text-[11px] text-muted">
-              Case data feeds the document steps. Only approved, active templates
-              can run.
-            </p>
-            <div className="space-y-2">
-              {runRows.map((row, index) => (
-                <div key={index} className="flex gap-2">
-                  <input
-                    value={row.key}
-                    placeholder="field, e.g. complainant"
-                    onChange={(event) =>
-                      setRunRows((current) =>
-                        current.map((entry, i) =>
-                          i === index ? { ...entry, key: event.target.value } : entry,
-                        ),
-                      )
-                    }
-                    className="w-40 bg-background border border-subtle rounded-lg px-2.5 py-1.5 text-xs"
-                  />
-                  <input
-                    value={row.value}
-                    placeholder="value"
-                    onChange={(event) =>
-                      setRunRows((current) =>
-                        current.map((entry, i) =>
-                          i === index ? { ...entry, value: event.target.value } : entry,
-                        ),
-                      )
-                    }
-                    className="flex-1 bg-background border border-subtle rounded-lg px-2.5 py-1.5 text-xs"
-                  />
-                </div>
-              ))}
-            </div>
-            <div className="flex justify-between gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  setRunRows((current) => [...current, { key: "", value: "" }])
-                }
-                className="px-3 py-1.5 rounded-lg border border-strong text-xs text-secondary hover:bg-surface-hover"
-              >
-                Add field
-              </button>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setRunOpen(false)}
-                  className="px-3 py-1.5 rounded-lg border border-strong text-xs text-secondary hover:bg-surface-hover"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void startRun()}
-                  disabled={busy || !templateId}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast text-xs font-semibold disabled:opacity-50"
-                >
-                  <FiPlay className="w-3.5 h-3.5" />
-                  Start run
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* // UI-REGION: Node Settings Drawer (double-click config panel) */}
+      {settingsNode && (
+        <NodeSettingsModal
+          node={settingsNode}
+          onClose={handleCloseSettings}
+          onUpdateConfig={handleUpdateNodeConfig}
+        />
       )}
     </div>
   );
