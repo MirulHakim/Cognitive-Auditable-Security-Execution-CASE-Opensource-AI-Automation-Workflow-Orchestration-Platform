@@ -5,17 +5,19 @@ Schemas
 Location: src/audit/schemas.py
 
 Section 3 (the audit event) follows AUDIT_MODULE_PLAN.md §5.1 since Phase 1,
-section 4 (verification result) follows §5.5 since Phase 2.
-Sections 5-6 were moved unchanged from src/secure_api/schemas.py in Phase 0
-and are revised in the phase that uses them (see the TODO on each section).
+section 4 (verification result) follows §5.5 since Phase 2,
+sections 6-7 (provenance record, lineage result) follow §5.4 / §8.5 since Phase 4.
+Section 5 was moved unchanged from src/secure_api/schemas.py in Phase 0
+and is revised in Phase 5 (see the TODO there).
 """
 
+import re
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 HASH_PATTERN = r"^[a-f0-9]{64}$"
 
@@ -271,62 +273,187 @@ class ExportAuditLogsResponse(BaseModel):
 
 
 # ============================================================================
-# 6. DECISION & PROVENANCE SCHEMAS
+# 6. PROVENANCE RECORD (§5.4, §8.4) - Phase 4
 # ============================================================================
-# TODO(Audit Phase 4): replace with the §5.4 provenance record (and rename WorkflowLineage, §3 rule 11).
+# One record per request, written once when the request is closed.
+# Think of it as the "case summary" on top of the event log:
+#   objective -> decision -> approvals -> execution -> result
+# plus the list of events it was built from (event_ids / event_hashes),
+# sealed with two hashes:
+#   lineage_hash = hash of the event_hashes list   (were the events changed?)
+#   record_hash  = hash of every other field       (was the summary changed?)
+# Only ids, labels and hashes are stored here, never content (rule 5).
 
-class AIDecision(BaseModel):
-    """AI decision record - tracks AI suggestions/classifications"""
-    decision_id: UUID
-    workflow_id: UUID
-    ai_suggestion: str
-    reasoning: Optional[str] = None
-    confidence_score: int = Field(..., ge=0, le=100)
-    evidence: Optional[List[str]] = None
-    timestamp: datetime
-    related_audit_event_id: UUID
+# Values of EXECUTION_CLOSED.final_status (catalogue.FINAL_STATUSES reads them from here).
+FinalStatus = Literal["DELIVERED", "REJECTED_GATE1", "REJECTED_GATE2", "UNSUPPORTED", "FAILED"]
 
-
-class ApprovalStatusEnum(str, Enum):
-    """Human approval status"""
-    APPROVED = "APPROVED"
-    REJECTED = "REJECTED"
-    PENDING = "PENDING"
+# The template version format belongs to the template store, so text and numbers are both kept as-is.
+TemplateVersion = Union[str, int]
 
 
-class HumanDecision(BaseModel):
-    """Human decision/approval record"""
-    decision_id: UUID
-    workflow_id: UUID
-    decision: ApprovalStatusEnum
-    approver_id: UUID
-    rationale: Optional[str] = None
-    timestamp: datetime
-    related_audit_event_id: UUID
+class ClassificationOutcomeEnum(str, Enum):
+    """What the AI classification said (AI_TEMPLATE_SELECTED / AI_TEMPLATE_NO_MATCH)."""
+    SELECTED = "SELECTED"
+    NO_MATCH = "NO_MATCH"
 
 
-class ExecutionResultStatus(str, Enum):
-    """Execution result status"""
-    SUCCESS = "SUCCESS"
-    FAILED = "FAILED"
-    PENDING = "PENDING"
+class TemplateChoiceEnum(str, Enum):
+    """Who decided the template (§5.4): lets an auditor see when a human changed the AI's choice."""
+    AI_SUGGESTED = "AI_SUGGESTED"                        # no operator template event
+    OPERATOR_SWITCHED = "OPERATOR_SWITCHED"              # TEMPLATE_MANUALLY_SELECTED
+    OPERATOR_REQUESTED_NEW = "OPERATOR_REQUESTED_NEW"    # TEMPLATE_REQUESTED
 
 
-class ExecutionResult(BaseModel):
-    """Workflow execution result"""
-    status: ExecutionResultStatus
-    result_data: Optional[Any] = None
-    error_message: Optional[str] = None
-    timestamp: datetime
+class _Part(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-class WorkflowLineage(BaseModel):
-    """Complete workflow lineage/provenance
-    Objective → AI Decision → Human Approval → Execution Result
-    """
-    workflow_id: UUID
-    objective: str
-    ai_decision: Optional[AIDecision] = None
-    human_decision: Optional[HumanDecision] = None
-    execution_result: Optional[ExecutionResult] = None
-    created_at: datetime
+class ProvenanceObjective(_Part):
+    """What was asked. Fields are null when the event that carries them is missing."""
+    source: AuditSourceEnum                       # channel of JOB_RECEIVED (first event if there is none)
+    request_ref: Optional[str] = Field(default=None, max_length=256)     # JOB_RECEIVED.details.request_ref
+    intent_label: Optional[str] = Field(default=None, max_length=128)    # readable objective from classification
+    std_message_output_hash: Optional[str] = Field(default=None, pattern=HASH_PATTERN)  # MESSAGE_STANDARDIZED.output_hash
+
+
+class ProvenanceDecision(_Part):
+    """Which template was used, and whether a human changed the AI's choice."""
+    classification_outcome: Optional[ClassificationOutcomeEnum] = None   # null if the AI never ran
+    ai_suggested_template_id: Optional[str] = None                       # null on NO_MATCH
+    template_choice: TemplateChoiceEnum
+    template_id: Optional[str] = None
+    template_version: Optional[TemplateVersion] = None
+    source_template_hash: Optional[str] = Field(default=None, pattern=HASH_PATTERN)
+    template_created_in_request: bool
+    ai_confidence: Optional[str] = None          # recorded as text, NOT treated as calibrated
+    working_copy_revision: Optional[int] = Field(default=None, ge=0)
+    final_working_copy_hash: Optional[str] = Field(default=None, pattern=HASH_PATTERN)
+
+
+class ProvenanceApproval(_Part):
+    """One gate decision. approved_hash: Gate 1 = approved template hash, Gate 2 = document hash
+    (null on a rejection)."""
+    gate: Literal["GATE1", "GATE2"]
+    decision: Literal["APPROVED", "REJECTED"]
+    by: str                                      # actor_id
+    role: ActorRoleEnum
+    at: datetime
+    approved_hash: Optional[str] = Field(default=None, pattern=HASH_PATTERN)
+    comment_hash: Optional[str] = Field(default=None, pattern=HASH_PATTERN)
+
+    @field_validator("at")
+    @classmethod
+    def _utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("at must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+
+class ProvenanceExecution(_Part):
+    """Template approved at Gate 1 vs template actually executed. All null if execution never started."""
+    approved_template_hash: Optional[str] = Field(default=None, pattern=HASH_PATTERN)
+    executed_template_hash: Optional[str] = Field(default=None, pattern=HASH_PATTERN)
+    hashes_match: Optional[bool] = None
+
+
+class ProvenanceResult(_Part):
+    final_status: FinalStatus                    # from EXECUTION_CLOSED
+    recipient_hash: Optional[str] = Field(default=None, pattern=HASH_PATTERN)
+    document_hash: Optional[str] = Field(default=None, pattern=HASH_PATTERN)
+
+
+class ProvenanceRecord(BaseModel):
+    """The sealed record of one request (§5.4). Stored in provenance_records (append-only)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    provenance_id: UUID
+    workspace_id: UUID
+    execution_id: str = Field(min_length=1, max_length=128)
+    objective: ProvenanceObjective
+    decision: ProvenanceDecision
+    approvals: List[ProvenanceApproval]
+    execution: ProvenanceExecution
+    result: ProvenanceResult
+    # Every event of this request up to and including EXECUTION_CLOSED, in seq order.
+    event_ids: List[UUID]
+    event_hashes: List[str]
+    lineage_hash: str = Field(pattern=HASH_PATTERN)
+    record_hash: str = Field(pattern=HASH_PATTERN)
+    sealed_at: datetime
+
+    @field_validator("event_hashes")
+    @classmethod
+    def _hashes(cls, value: List[str]) -> List[str]:
+        if any(not re.fullmatch(HASH_PATTERN, h) for h in value):
+            raise ValueError("every event hash must be 64 lowercase hex characters")
+        return value
+
+    @field_validator("sealed_at")
+    @classmethod
+    def _utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("sealed_at must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+    @model_validator(mode="after")
+    def _same_length(self) -> "ProvenanceRecord":
+        if len(self.event_ids) != len(self.event_hashes):
+            raise ValueError("event_ids and event_hashes must have the same length")
+        return self
+
+
+# ============================================================================
+# 7. LINEAGE VERIFICATION RESULT (§8.5) - Phase 4
+# ============================================================================
+
+class LineageStatusEnum(str, Enum):
+    VALID = "VALID"
+    INVALID = "INVALID"
+
+
+# Everything verify_lineage can find wrong. Unlike verify_chain it reports
+# every problem, not only the first.
+class LineageProblemEnum(str, Enum):
+    RECORD_HASH_MISMATCH = "RECORD_HASH_MISMATCH"          # 1. a provenance field was changed
+    EVENT_MISSING = "EVENT_MISSING"                        # 2. a listed event is gone
+    EVENT_MODIFIED = "EVENT_MODIFIED"                      # 2. a listed event no longer has its listed hash
+    LINEAGE_HASH_MISMATCH = "LINEAGE_HASH_MISMATCH"        # 3. the event_hashes list was changed
+    CHAIN_BROKEN = "CHAIN_BROKEN"                          # 4. verify_chain failed up to PROVENANCE_RECORDED
+    PROVENANCE_EVENT_MISSING = "PROVENANCE_EVENT_MISSING"  # 5. no PROVENANCE_RECORDED for this record
+    PROVENANCE_EVENT_MISMATCH = "PROVENANCE_EVENT_MISMATCH"  # 5. its details do not match the record
+    TEMPLATE_HASH_MISMATCH = "TEMPLATE_HASH_MISMATCH"      # 6. approved template != executed template
+    ORDER_VIOLATION = "ORDER_VIOLATION"                    # 7. a step happened before its required gate
+
+
+class LineageProblem(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    reason: LineageProblemEnum
+    seq: Optional[int] = Field(default=None, ge=1)   # the offending event, when there is one
+    event_id: Optional[UUID] = None
+    detail: Optional[str] = None                     # short explanation, never content
+
+
+class LineageVerificationResult(BaseModel):
+    """One verify_lineage run. VALID proves the record and its events are unchanged and
+    that the recorded order respected both gates. It does not prove the AI classification
+    or the human decision was correct."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    verification_id: UUID
+    workspace_id: UUID
+    execution_id: str
+    provenance_id: UUID
+    verified_by: str = Field(min_length=1, max_length=128)
+    verified_role: ActorRoleEnum
+    verified_at: datetime
+    status: LineageStatusEnum
+    events_checked: int = Field(ge=0)
+    problems: List[LineageProblem]
+    duration_ms: int = Field(ge=0)
+
+    @property
+    def is_valid(self) -> bool:
+        return self.status is LineageStatusEnum.VALID

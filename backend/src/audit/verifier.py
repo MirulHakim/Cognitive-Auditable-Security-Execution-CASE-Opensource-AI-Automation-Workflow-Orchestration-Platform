@@ -19,20 +19,24 @@ say how many later records are unverifiable and which record was really the
 last one found. Only reads; logging the result (AUDIT_INTEGRITY_VERIFIED /
 AUDIT_INTEGRITY_FAILED) is done by AuditService.verify_chain.
 
-verify_lineage (§8.5) is added here in Phase 4.
+verify_lineage (§8.5, Phase 4) re-checks one sealed request: see the
+section at the bottom of this file.
 """
 
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Callable, Optional
 from uuid import UUID, uuid4
 
-from .canonical import GENESIS_HASH, compute_event_hash
-from .errors import AuditValidationError
+from .canonical import GENESIS_HASH, compute_event_hash, compute_lineage_hash, compute_record_hash
+from .catalogue import REQUIRED_PRIOR_GATE, AuditAction
+from .errors import AuditValidationError, ProvenanceError
 from .repository import AuditRepository
-from .schemas import AuditEvent, ChainBreakReasonEnum, ChainVerificationResult, VerificationStatusEnum
+from .schemas import (AuditEvent, ChainBreakReasonEnum, ChainVerificationResult, LineageProblem,
+                      LineageProblemEnum, LineageStatusEnum, LineageVerificationResult, VerificationStatusEnum)
 
 #verifier can request up to 1000 events at a time 
 #but the repository may return fewer if the range is smaller or the workspace has fewer events.
@@ -40,6 +44,10 @@ BATCH_SIZE = 1000
 
 #alias to simplify the name(buat lagi pendek)
 Reason = ChainBreakReasonEnum
+Problem = LineageProblemEnum
+
+# Gate-order rules as plain text (events store `action` as text): step -> gate it needs.
+_PRIOR_GATE: dict[str, str] = {step.value: gate.value for step, gate in REQUIRED_PRIOR_GATE.items()}
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -212,4 +220,119 @@ async def verify_chain(
     )
 
 
-__all__ = ["BATCH_SIZE", "verify_chain"]
+# ============================================================================
+# verify_lineage (§8.5) - Phase 4
+# ============================================================================
+# Re-checks one sealed request. Unlike verify_chain it does NOT stop at the
+# first problem: an auditor wants the full list.
+#   1. record_hash recomputes from the stored record
+#   2. every listed event exists and still has its listed hash
+#   3. lineage_hash recomputes from event_hashes
+#   4. the chain verifies up to the PROVENANCE_RECORDED event
+#   5. PROVENANCE_RECORDED exists and its details match the record
+#   6. approved template hash == executed template hash
+#   7. gate order (catalogue.REQUIRED_PRIOR_GATE)
+
+def find_gate_order_violations(events: Sequence[AuditEvent]) -> list[LineageProblem]:
+    """Check 7: walk the events in seq order and remember which gate approvals
+    have happened. A step that needs a gate (e.g. DOCUMENT_GENERATED needs
+    GATE1_APPROVED) but comes before it is an order violation."""
+    problems = []
+    seen: set[str] = set()
+    for event in sorted(events, key=lambda e: e.seq):
+        required = _PRIOR_GATE.get(event.action)
+        if required is not None and required not in seen:
+            problems.append(LineageProblem(reason=Problem.ORDER_VIOLATION, seq=event.seq, event_id=event.event_id,
+                                           detail=f"{event.action} before {required}"))
+        seen.add(event.action)
+    return problems
+
+
+async def verify_lineage(
+        repository: AuditRepository,
+        workspace_id: UUID,
+        execution_id: str,
+        *,
+        verified_by: str = "system",
+        verified_role: str = "SYSTEM",
+        clock: Callable[[], datetime] = _utc_now,
+        new_id: Callable[[], UUID] = uuid4,
+) -> LineageVerificationResult:
+    """Run checks 1-7 on the sealed record of one request. Only reads; logging the
+    result (LINEAGE_VERIFIED / LINEAGE_VERIFICATION_FAILED) is done by AuditService."""
+    started = time.perf_counter()
+    record = await repository.get_provenance(workspace_id, execution_id)
+    if record is None:
+        raise ProvenanceError("this request has no provenance record yet (it was never sealed)",
+                              code="NOT_SEALED")
+    problems: list[LineageProblem] = []
+
+    # 1. Was the summary itself changed?
+    if compute_record_hash(record) != record.record_hash:
+        problems.append(LineageProblem(reason=Problem.RECORD_HASH_MISMATCH))
+
+    # 2. Is every listed event still there, with the same hash?
+    stored = await repository.list_execution_events(workspace_id, execution_id)
+    by_id = {e.event_id: e for e in stored}
+    found: list[AuditEvent] = []
+    for event_id, listed_hash in zip(record.event_ids, record.event_hashes):
+        event = by_id.get(event_id)
+        if event is None:
+            problems.append(LineageProblem(reason=Problem.EVENT_MISSING, event_id=event_id))
+            continue
+        found.append(event)
+        # Stored hash differs (edited + re-hashed) or no longer matches its own fields (edited only).
+        if event.current_hash != listed_hash or compute_event_hash(event) != listed_hash:
+            problems.append(LineageProblem(reason=Problem.EVENT_MODIFIED, seq=event.seq, event_id=event_id))
+
+    # 3. Was the list of event hashes changed?
+    if compute_lineage_hash(record.event_hashes) != record.lineage_hash:
+        problems.append(LineageProblem(reason=Problem.LINEAGE_HASH_MISMATCH))
+
+    # 5 (looked up before 4, which needs its seq). The PROVENANCE_RECORDED event of THIS record.
+    marker = next((e for e in stored if e.action == AuditAction.PROVENANCE_RECORDED.value
+                   and e.details.get("provenance_id") == str(record.provenance_id)), None)
+
+    # 4. Does the chain verify up to PROVENANCE_RECORDED (or the last listed event if it is missing)?
+    to_seq = marker.seq if marker is not None else max((e.seq for e in found), default=None)
+    if to_seq is not None:
+        chain = await verify_chain(repository, workspace_id, to_seq=to_seq, verified_by=verified_by,
+                                   verified_role=verified_role, clock=clock, new_id=new_id)
+        if not chain.is_verified:
+            problems.append(LineageProblem(reason=Problem.CHAIN_BROKEN, seq=chain.broken_at_seq,
+                                           detail=chain.reason.value))
+
+    # 5. PROVENANCE_RECORDED must exist and repeat the record's hashes.
+    if marker is None:
+        problems.append(LineageProblem(reason=Problem.PROVENANCE_EVENT_MISSING))
+    elif (marker.details.get("lineage_hash"), marker.details.get("record_hash"), marker.details.get("event_count")) \
+            != (record.lineage_hash, record.record_hash, len(record.event_ids)):
+        problems.append(LineageProblem(reason=Problem.PROVENANCE_EVENT_MISMATCH, seq=marker.seq,
+                                       event_id=marker.event_id))
+
+    # 6. The template that ran must be the one approved at Gate 1.
+    for event in found:
+        if event.action == AuditAction.EXECUTION_STARTED.value and \
+                event.details.get("approved_template_hash") != event.details.get("executed_template_hash"):
+            problems.append(LineageProblem(reason=Problem.TEMPLATE_HASH_MISMATCH, seq=event.seq,
+                                           event_id=event.event_id))
+
+    # 7. Gate order.
+    problems.extend(find_gate_order_violations(found))
+
+    return LineageVerificationResult(
+        verification_id=new_id(),
+        workspace_id=workspace_id,
+        execution_id=execution_id,
+        provenance_id=record.provenance_id,
+        verified_by=verified_by,
+        verified_role=verified_role,
+        verified_at=clock(),
+        status=LineageStatusEnum.VALID if not problems else LineageStatusEnum.INVALID,
+        events_checked=len(found),
+        problems=problems,
+        duration_ms=int((time.perf_counter() - started) * 1000),
+    )
+
+
+__all__ = ["BATCH_SIZE", "verify_chain", "find_gate_order_violations", "verify_lineage"]

@@ -139,8 +139,36 @@ def compute_event_hash(event: Any) -> str:
     return sha256_hex(canonical_json([HASH_VERSION, *(get(name) for name in HASH_FIELDS)]))
 
 
+# ---------------------------------------------------------------------------
+# Provenance hashes (§5.4) - Phase 4
+# ---------------------------------------------------------------------------
+
+# Every provenance field except record_hash itself (a hash cannot include itself).
+RECORD_HASH_FIELDS: tuple[str, ...] = (
+    "provenance_id", "workspace_id", "execution_id",
+    "objective", "decision", "approvals", "execution", "result",
+    "event_ids", "event_hashes", "lineage_hash", "sealed_at",
+)
+
+
+def compute_lineage_hash(event_hashes: Any) -> str:
+    """SHA-256(canonical_json(event_hashes)): one hash for the whole ordered list
+    of event hashes. Changing, removing or reordering any event changes it."""
+    return sha256_hex(canonical_json(list(event_hashes)))
+
+
+def compute_record_hash(record: Any) -> str:
+    """SHA-256(canonical_json({field: value for RECORD_HASH_FIELDS})).
+
+    `record` is a ProvenanceRecord or a plain mapping with the same keys (e.g.
+    one record of a JSON export), so it can be re-checked without the models.
+    """
+    data = record if isinstance(record, Mapping) else record.model_dump()
+    return sha256_hex(canonical_json({name: data[name] for name in RECORD_HASH_FIELDS}))
+
+
 __all__ = [
-    "HASH_VERSION", "HASH_FIELDS", "GENESIS_HASH", "TIMESTAMP_FORMAT",
+    "HASH_VERSION", "HASH_FIELDS", "GENESIS_HASH", "TIMESTAMP_FORMAT", "RECORD_HASH_FIELDS",
     "CanonicalizationError", "format_timestamp", "normalize", "canonical_json", "sha256_hex",
-    "compute_event_hash",
+    "compute_event_hash", "compute_lineage_hash", "compute_record_hash",
 ]

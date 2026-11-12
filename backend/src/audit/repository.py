@@ -66,8 +66,8 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 
-from .canonical import GENESIS_HASH
-from .schemas import AuditEvent, ChainVerificationResult
+from .canonical import GENESIS_HASH, normalize
+from .schemas import AuditEvent, ChainVerificationResult, ProvenanceRecord
 
 if TYPE_CHECKING:
     from psycopg import AsyncConnection
@@ -114,6 +114,19 @@ class AuditRepository(Protocol):
         """Stored verification results, newest first."""
         ...
 
+    # Phase 4 (provenance, §8.4-8.5)
+    async def list_execution_events(self, workspace_id: UUID, execution_id: str) -> tuple[AuditEvent, ...]:
+        """All events of one request, ordered by seq."""
+        ...
+
+    async def save_provenance(self, record: ProvenanceRecord, *,
+                              session: AsyncConnection | None = None) -> bool:
+        """Store a sealed record. Returns False (and stores nothing) if the
+        request already has one: a request is sealed once (§8.4 step 7)."""
+        ...
+
+    async def get_provenance(self, workspace_id: UUID, execution_id: str) -> Optional[ProvenanceRecord]: ...
+
 #nak validate that a newly built audit event correctly
 #continues the current workspace hash chain.
 def check_links(workspace_id: UUID, 
@@ -146,6 +159,7 @@ class InMemoryAuditRepository:
         self._heads: dict[UUID, ChainHead] = {}
         self._locks: dict[UUID, asyncio.Lock] = {}
         self._verifications: dict[UUID, list[ChainVerificationResult]] = {}
+        self._provenance: dict[tuple[UUID, str], ProvenanceRecord] = {}
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[None]:
@@ -199,6 +213,23 @@ class InMemoryAuditRepository:
         newest_first = list(reversed(self._verifications.get(workspace_id, ())))
         return tuple(newest_first if limit is None else newest_first[:limit])
 
+    async def list_execution_events(self, workspace_id: UUID, execution_id: str) -> tuple[AuditEvent, ...]:
+        selected = sorted((e for e in self._events.get(workspace_id, ()) if e.execution_id == execution_id),
+                          key=lambda e: e.seq)
+        return tuple(e.model_copy(deep=True) for e in selected)
+
+    async def save_provenance(self, record: ProvenanceRecord, *,
+                              session: AsyncConnection | None = None) -> bool:
+        key = (record.workspace_id, record.execution_id)
+        if key in self._provenance:  # same rule as the UNIQUE constraint in Postgres
+            return False
+        self._provenance[key] = record  # frozen model, safe to keep
+        return True
+
+    async def get_provenance(self, workspace_id: UUID, execution_id: str) -> Optional[ProvenanceRecord]:
+        record = self._provenance.get((workspace_id, execution_id))
+        return None if record is None else record.model_copy(deep=True)
+
 
 # ============================================================================
 # PostgreSQL (Phase 3)
@@ -208,6 +239,9 @@ class InMemoryAuditRepository:
 # the SQL cannot drift from them; never from user input, so the f-strings are safe.
 _EVENT_COLUMNS = tuple(AuditEvent.model_fields)
 _VERIFICATION_COLUMNS = tuple(ChainVerificationResult.model_fields)
+_PROVENANCE_COLUMNS = tuple(ProvenanceRecord.model_fields)
+# These provenance columns are jsonb (001_audit_tables.sql).
+_PROVENANCE_JSON = ("objective", "decision", "approvals", "execution", "result", "event_ids", "event_hashes")
 
 
 def _insert_sql(table: str, columns: tuple[str, ...]) -> str:
@@ -217,6 +251,19 @@ def _insert_sql(table: str, columns: tuple[str, ...]) -> str:
 
 _INSERT_EVENT = _insert_sql("audit_events", _EVENT_COLUMNS)
 _INSERT_VERIFICATION = _insert_sql("hash_chain_verifications", _VERIFICATION_COLUMNS)
+# A second seal of the same request inserts nothing and returns no row (§8.4 step 7).
+_INSERT_PROVENANCE = (_insert_sql("provenance_records", _PROVENANCE_COLUMNS)
+                      + " ON CONFLICT (workspace_id, execution_id) DO NOTHING RETURNING provenance_id")
+
+
+def _provenance_values(record: ProvenanceRecord) -> dict[str, Any]:
+    """The jsonb parts are written with the same rules as the hash (canonical.normalize),
+    so a record read back recomputes to the same record_hash."""
+    plain = normalize(record.model_dump())
+    values = dict(record)
+    for name in _PROVENANCE_JSON:
+        values[name] = Jsonb(plain[name])
+    return values
 
 
 def _row_values(model: BaseModel) -> dict[str, Any]:
@@ -338,6 +385,27 @@ class PostgresAuditRepository:
         async with self._db.connection() as conn:
             rows = await _fetch_all(conn, query, {"workspace_id": workspace_id, "limit": limit})
         return tuple(ChainVerificationResult(**row) for row in rows)
+
+    async def list_execution_events(self, workspace_id: UUID, execution_id: str) -> tuple[AuditEvent, ...]:
+        # Uses the (workspace_id, execution_id, seq) index from 001.
+        query = (f"SELECT {', '.join(_EVENT_COLUMNS)} FROM audit_events "
+                 "WHERE workspace_id = %s AND execution_id = %s ORDER BY seq")
+        async with self._db.connection() as conn:
+            rows = await _fetch_all(conn, query, (workspace_id, execution_id))
+        return tuple(AuditEvent(**row) for row in rows)
+
+    async def save_provenance(self, record: ProvenanceRecord, *,
+                              session: AsyncConnection | None = None) -> bool:
+        async with self._use(session) as conn:
+            rows = await _fetch_all(conn, _INSERT_PROVENANCE, _provenance_values(record))
+        return bool(rows)
+
+    async def get_provenance(self, workspace_id: UUID, execution_id: str) -> Optional[ProvenanceRecord]:
+        query = (f"SELECT {', '.join(_PROVENANCE_COLUMNS)} FROM provenance_records "
+                 "WHERE workspace_id = %s AND execution_id = %s")
+        async with self._db.connection() as conn:
+            rows = await _fetch_all(conn, query, (workspace_id, execution_id))
+        return ProvenanceRecord(**rows[0]) if rows else None
 
 
 __all__ = ["ChainHead", "EventBuilder", "AuditRepository", "InMemoryAuditRepository", "PostgresAuditRepository"]
