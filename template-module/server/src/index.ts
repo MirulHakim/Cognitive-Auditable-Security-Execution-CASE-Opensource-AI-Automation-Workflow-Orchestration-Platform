@@ -1,4 +1,7 @@
+import { OllamaTemplateGenerator } from "./ai/generator.js";
 import { PostgresAuditLog } from "./audit/auditLog.js";
+import { OllamaDocumentContentGenerator } from "./ai/documentContent.js";
+import { OllamaFileReader } from "./ai/fileReader.js";
 import { PostgresOperatorDirectory } from "./auth/operators.js";
 import { createApp } from "./app.js";
 import { config } from "./config.js";
@@ -8,10 +11,6 @@ import { SimulatedNotificationPort } from "./execution/notifier.js";
 import { HtmlFileDocumentGenerator } from "./execution/documents.js";
 import { PostgresExecutionRepository } from "./repo/pgExecutionRepo.js";
 import { PostgresTemplateRepository } from "./repo/pgRepo.js";
-import {
-  AiGenerationError,
-  type TemplateGenerator,
-} from "./services/templateService.js";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 
 async function main(): Promise<void> {
@@ -37,35 +36,41 @@ async function main(): Promise<void> {
     executions: new PostgresExecutionRepository(pool),
     checkpointer,
     notifier: new SimulatedNotificationPort(),
-    // No content drafter here: the document step renders the case input
-    // deterministically. The AI-drafted body ships with the ai-intent feature.
-    documents: new HtmlFileDocumentGenerator(config.documentOutputDir),
+    documents: new HtmlFileDocumentGenerator(
+      config.documentOutputDir,
+      // AI drafts the document body during execution (CASE document-designer
+      // prompt); on any model failure the port falls back to input rendering.
+      new OllamaDocumentContentGenerator({
+        baseUrl: config.ollama.baseUrl,
+        model: config.ollama.model,
+        temperature: config.ollama.temperature,
+        timeoutMs: config.ollama.timeoutMs,
+      }),
+    ),
     operators: new PostgresOperatorDirectory(pool),
-    generator: new UnavailableTemplateGenerator(),
+    generator: new OllamaTemplateGenerator({
+      baseUrl: config.ollama.baseUrl,
+      model: config.ollama.model,
+      temperature: config.ollama.temperature,
+      timeoutMs: config.ollama.timeoutMs,
+      supportedRoles: config.rules.supportedRoles,
+    }),
     rules: config.rules,
     corsOrigins: config.corsOrigins,
     documentOutputDir: config.documentOutputDir,
     audit: new PostgresAuditLog(pool),
-    // No `files` port: intake and file reading ship with the ai-intent feature,
-    // so an upload step is refused with a clear message instead of half-working.
+    files: new OllamaFileReader({
+      baseUrl: config.ollama.baseUrl,
+      model: config.ollama.model,
+      temperature: config.ollama.temperature,
+      timeoutMs: config.ollama.timeoutMs,
+    }),
   });
 
   app.listen(config.port, () => {
     console.log(`Template API listening on http://127.0.0.1:${config.port}`);
     console.log(`  Ollama: ${config.ollama.baseUrl} (${config.ollama.model})`);
   });
-}
-
-/**
- * Engine build: natural-language drafting belongs to the ai-intent feature, so
- * this port answers with a 502 saying so rather than pretending to draft.
- */
-class UnavailableTemplateGenerator implements TemplateGenerator {
-  async generate(): Promise<never> {
-    throw new AiGenerationError(
-      "AI drafting is not available in this build. Enable the ai-intent module to draft templates from a description.",
-    );
-  }
 }
 
 main().catch((error: unknown) => {

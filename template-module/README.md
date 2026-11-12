@@ -1,10 +1,5 @@
 # Workflow Template Module
 
-> **This branch ships the workflow engine only.** Natural-language drafting,
-> AI-drafted document bodies and OCR intake live in the `ai-intent` branch:
-> here `/generate` answers `502 AI_GENERATION_FAILED`, document steps render the
-> case input, and upload steps are refused.
-
 A template-creation module for approval-controlled workflows: operators either build a
 template by hand or describe one in natural language, the backend validates it, and a
 template only becomes usable after an authorised human approves it.
