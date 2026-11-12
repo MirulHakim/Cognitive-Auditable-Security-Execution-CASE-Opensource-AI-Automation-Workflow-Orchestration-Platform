@@ -8,7 +8,7 @@ The Audit module is CASE's independent evidence service. Other modules decide wh
 |---|---|---|
 | **O1** Readable, traceable audit timeline | `log_event()` records every step; timeline API | recording ✅, API in Phase 5 |
 | **O2** SHA-256 hash chain that shows *where* it was altered | hash chain + chain head + `verify_chain()` | ✅ |
-| **O3** Full lineage of each request as one record | provenance record + lineage hash | Phase 4 |
+| **O3** Full lineage of each request as one record | provenance record + lineage hash + `verify_lineage()` | ✅ (API in Phase 5) |
 
 ---
 
@@ -20,7 +20,7 @@ The Audit module is CASE's independent evidence service. Other modules decide wh
 | 1. Core | Event catalogue, canonical hashing, `AuditService.log_event`, in-memory repository | ✅ |
 | 2. Verify | `verify_chain` with chain head: detects edits, re-hashing, deletions, reordering and rows inserted outside `log_event` | ✅ |
 | 3. Postgres | Shared DB pool, migrations, `PostgresAuditRepository`, advisory lock, append-only triggers, role split, pattern A | ✅ |
-| 4. Provenance | `seal_provenance`, `verify_lineage` (incl. gate order) | to do |
+| 4. Provenance | `seal_provenance`, `verify_lineage` (incl. gate order), mock scenarios A–E and G | ✅ |
 | 5. Read API + export | Timeline/verify endpoints, JSON + PDF export | to do |
 | 6. Plug in | Connect Standardization, Ingress, Integrations, Workflow Engine | to do, with Samantha and Amirul |
 
@@ -145,7 +145,16 @@ Every event of a request carries the same `execution_id` (the LangGraph `thread_
 | 7. Delivery (**after** `GATE2_APPROVED`) | `JOB_DELIVERED` | free. Log **after** the send succeeds; retry the log once | B |
 | 8. Close (exactly once) | `EXECUTION_CLOSED` | `final_status`: `DELIVERED` \| `REJECTED_GATE1` \| `REJECTED_GATE2` \| `UNSUPPORTED` \| `FAILED` | B |
 
-After `EXECUTION_CLOSED`, call `seal_provenance(workspace_id, execution_id)` (Phase 4). Audit then builds the request's lineage record.
+After `EXECUTION_CLOSED`, call `await audit.seal_provenance(workspace_id, execution_id)`. Audit then builds the request's lineage record (see [Sealing a request](#sealing-a-request-provenance-phase-4)).
+
+**Optional keys the provenance record picks up** (in "free" details). Send them if you have them; the record shows `null` otherwise:
+
+| Action | Key | Shown in the record as |
+|---|---|---|
+| `JOB_RECEIVED` | `request_ref` (e.g. the Gmail message id or Telegram update id, ≤ 256 chars) | `objective.request_ref` |
+| `AI_TEMPLATE_SELECTED` / `AI_TEMPLATE_NO_MATCH` | `intent_label` (readable label, e.g. `"leave application"`, ≤ 128 chars) | `objective.intent_label` |
+| `DOCUMENT_GENERATED` | `document_hash` | `result.document_hash` |
+| `JOB_DELIVERED` | `recipient_hash` (hash of the address, **never the address**) | `result.recipient_hash` |
 
 **Gate order is checked.** `EXECUTION_STARTED`, `ATTACHMENT_EXTRACTED`, `AI_CONTENT_GENERATED` and `DOCUMENT_GENERATED` must come after a `GATE1_APPROVED` of the same request, and `JOB_DELIVERED` after a `GATE2_APPROVED`. Otherwise `verify_lineage` reports an order violation.
 
@@ -200,6 +209,72 @@ Each run is stored in `hash_chain_verifications` and logged as `AUDIT_INTEGRITY_
 
 ---
 
+## Sealing a request (provenance, Phase 4)
+
+When a request ends, the Workflow Engine logs `EXECUTION_CLOSED` and then calls:
+
+```python
+record = await audit.seal_provenance(workspace_id, execution_id)
+```
+
+Audit collects every event of that request (up to `EXECUTION_CLOSED`) and writes **one** record to `provenance_records`:
+
+| Part | What it says |
+|---|---|
+| `objective` | Where the request came from (`source`, `request_ref`), the AI's `intent_label`, hash of the standardized message |
+| `decision` | What the AI suggested, which template was used, and `template_choice`: `AI_SUGGESTED`, `OPERATOR_SWITCHED` (operator picked another) or `OPERATOR_REQUESTED_NEW` (operator asked the AI for a new one) |
+| `approvals` | Every Gate 1 / Gate 2 decision: who, role, when, which hash was approved |
+| `execution` | Template approved at Gate 1 vs template executed, and whether they match |
+| `result` | `final_status`, document hash, recipient hash |
+| `event_ids`, `event_hashes` | The events it was built from, in `seq` order |
+| `lineage_hash` | One hash over `event_hashes`: changes if any event changes |
+| `record_hash` | One hash over all the fields above: changes if the record itself changes |
+
+Then it logs `PROVENANCE_RECORDED` in the **same transaction** (both saved, or neither).
+
+- **Sealed once.** Calling it again returns the same record, also when two calls run at the same time.
+- **Refused** (`ProvenanceError`, check `.code`): `NOT_CLOSED` (no `EXECUTION_CLOSED`, or more than one) or `CHAIN_BROKEN` (the chain fails verification; `AUDIT_INTEGRITY_FAILED` is logged).
+- `PROVENANCE_RECORDED` comes after `EXECUTION_CLOSED`, so it is never part of its own lineage.
+
+### Verifying a request
+
+```python
+result = await audit.verify_lineage(workspace_id, execution_id, actor="u-7", role="AUDITOR")
+result.status      # VALID or INVALID
+result.problems    # every problem found (not only the first), each with reason and seq
+```
+
+Logged as `LINEAGE_VERIFIED` / `LINEAGE_VERIFICATION_FAILED`. Raises `ProvenanceError` `NOT_SEALED` if the request has no record yet.
+
+| `reason` | What happened |
+|---|---|
+| `RECORD_HASH_MISMATCH` | A field of the provenance record was changed |
+| `EVENT_MISSING` | An event listed in the record was deleted |
+| `EVENT_MODIFIED` | An event listed in the record was changed |
+| `LINEAGE_HASH_MISMATCH` | The list of event hashes in the record was changed |
+| `CHAIN_BROKEN` | `verify_chain` fails up to `PROVENANCE_RECORDED` (`detail` gives the chain reason) |
+| `PROVENANCE_EVENT_MISSING` / `PROVENANCE_EVENT_MISMATCH` | The `PROVENANCE_RECORDED` event is gone, or no longer matches the record (catches a record that was changed **and** re-hashed) |
+| `TEMPLATE_HASH_MISMATCH` | The executed template is not the one approved at Gate 1 |
+| `ORDER_VIOLATION` | A step ran before its gate, e.g. `DOCUMENT_GENERATED` before `GATE1_APPROVED` |
+
+`VALID` proves the record and its events are unchanged and the recorded order respected both gates. It does **not** prove the AI's classification or the human decision was correct.
+
+### Mock scenarios
+
+[`tests/audit/scenarios.py`](../../backend/tests/audit/scenarios.py) plays whole requests with valid events. They are the reference for the order and `details` your module should log, and the demo script for Phase 6:
+
+| | Scenario | Expected |
+|---|---|---|
+| A | AI selects → operator accepts → Gate 1 → executed → Gate 2 → delivered | `VALID`, `AI_SUGGESTED` |
+| B | AI no match → operator rejects | `VALID`, `UNSUPPORTED`, no execution |
+| C | AI picks X → operator picks Y | `VALID`, `OPERATOR_SWITCHED`, shows X and Y |
+| D | Operator asks AI for a new template → saved → both gates | `VALID`, `OPERATOR_REQUESTED_NEW` |
+| E | Edit after Gate 1 refused | `VALID`, approved = executed |
+| F | Audit write fails at approval | Phase 6 (needs the LangGraph graph) |
+| G | Document generated with no Gate 1 | `INVALID`, `ORDER_VIOLATION` |
+
+---
+
 ## Database (Phase 3)
 
 Migrations live in [`backend/migrations/`](../../backend/migrations/) and are applied with `python -m src.storage.migrate` (see the root README).
@@ -209,7 +284,7 @@ Migrations live in [`backend/migrations/`](../../backend/migrations/) and are ap
 | `audit_events` | One row per step, append-only. `UNIQUE (workspace_id, seq)` |
 | `audit_chain_heads` | Last `seq` and hash of each workspace chain; detects a deleted tail |
 | `hash_chain_verifications` | One row per `verify_chain` run |
-| `provenance_records` | One sealed record per closed request (filled in Phase 4) |
+| `provenance_records` | One sealed record per closed request. `UNIQUE (workspace_id, execution_id)` |
 | `audit_exports` | Who exported what, with the chain head at that time (Phase 5) |
 
 How the records are protected:
@@ -229,12 +304,13 @@ How the records are protected:
 |---|---|
 | `port.py` | Public interface: `AuditLogger`, `NullAuditLogger`, `MemoryAuditLogger`. The only file other modules need to import |
 | `catalogue.py` | Every allowed `action`, its `event_type`, required `details`, forbidden keys, gate-order rules |
-| `canonical.py` | Canonical JSON and SHA-256 hashing (`HASH_FIELDS`, `compute_event_hash`) |
-| `service.py` | `AuditService`: validates and records events (`log_event`), runs and stores verification |
+| `canonical.py` | Canonical JSON and SHA-256 hashing (`compute_event_hash`, `compute_lineage_hash`, `compute_record_hash`) |
+| `service.py` | `AuditService`: records events (`log_event`), runs and stores verification, `seal_provenance`, `verify_lineage` |
+| `provenance.py` | Builds the provenance record from one request's events (incl. `template_choice`) |
 | `repository.py` | Storage: `PostgresAuditRepository` (real) and `InMemoryAuditRepository` (unit tests) |
-| `verifier.py` | `verify_chain`: walks the chain and finds the first broken record |
-| `schemas.py` | Pydantic models: `AuditEvent`, `ChainVerificationResult`, ... |
-| `errors.py` | `AuditValidationError` |
+| `verifier.py` | `verify_chain` (first broken record) and `verify_lineage` (every problem, incl. gate order) |
+| `schemas.py` | Pydantic models: `AuditEvent`, `ChainVerificationResult`, `ProvenanceRecord`, `LineageVerificationResult`, ... |
+| `errors.py` | `AuditValidationError`, `ProvenanceError` |
 | `../storage/database.py` | Shared connection pool + `transaction()` helper, used by every module |
 | `../storage/migrate.py` | Applies `backend/migrations/*.sql` in order |
 
@@ -260,6 +336,10 @@ The integration tests create their own `case_test` database on each run (your `c
 | Triggers and roles | `integration/test_db_protection.py` |
 | Pattern A (all or nothing) | `integration/test_pattern_a.py` |
 | Standardization works with `AuditService` | `test_standardization_contract.py` |
+| Sealing, record contents, `template_choice` | `test_provenance.py` |
+| `verify_lineage` checks 1–7, tampering, gate order | `test_lineage.py` |
+| Scenarios A–E and G | `test_scenarios.py` (in memory), `integration/test_provenance_postgres.py` |
+| Seal in Postgres: round trip, parallel seals, rollback | `integration/test_provenance_postgres.py` |
 
 ---
 
@@ -267,4 +347,6 @@ The integration tests create their own `case_test` database on each run (your `c
 
 - A hash chain proves **integrity** (changes are detectable), not who made them. A database superuser could rebuild the whole chain; comparing the chain head with a copy kept outside the system detects that. External anchoring / signing is future work.
 - A valid chain does not prove every action was logged. Patterns A and B make sure state changes and approvals cannot happen without a record.
+- `verify_lineage` checks the order of what was **logged**. If a module skipped a gate and also did not log the step, Audit cannot see it; the gates themselves are enforced by the Workflow Engine.
+- The provenance record reads optional keys (`request_ref`, `intent_label`, `document_hash`, `recipient_hash`) from free-form details; if a module does not send them they are `null`.
 - Full list: plan §15.

@@ -19,4 +19,16 @@ class AuditValidationError(ValueError):
         self.code = code
 
 
-__all__ = ["AuditValidationError"]
+class ProvenanceError(Exception):
+    """seal_provenance / verify_lineage refused to run (Phase 4). Codes:
+    NOT_CLOSED   - the request has no EXECUTION_CLOSED, or more than one
+    CHAIN_BROKEN - the workspace chain fails verification, so it cannot be sealed
+    NOT_SEALED   - verify_lineage was asked about a request with no provenance record
+    """
+
+    def __init__(self, message: str, code: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+__all__ = ["AuditValidationError", "ProvenanceError"]

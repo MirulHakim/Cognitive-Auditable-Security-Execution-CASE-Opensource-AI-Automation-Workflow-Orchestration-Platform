@@ -18,11 +18,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from enum import Enum
-from typing import Annotated, Any, Literal, Optional, Union
+from typing import Annotated, Any, Literal, Optional, Union, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
 
-from .schemas import HASH_PATTERN, AuditEventTypeEnum
+from .schemas import HASH_PATTERN, AuditEventTypeEnum, FinalStatus
 
 #list of all actions that can be logged in the audit trail. 
 #each action is associated with an event type and may have required details that must be provided when logging the action. 
@@ -129,17 +129,9 @@ EVENT_TYPES: Mapping[AuditAction, AuditEventTypeEnum] = {
     A.PROVENANCE_RECORDED: T.INTEGRITY_EVENT,
 }
 
-#final status: end of execution, either success or failure. 
-FINAL_STATUSES: tuple[str, ...] = ("DELIVERED", 
-                                   "REJECTED_GATE1", 
-                                   "REJECTED_GATE2", 
-                                   "UNSUPPORTED", 
-                                   "FAILED")
-FinalStatus = Literal["DELIVERED", 
-                      "REJECTED_GATE1", 
-                      "REJECTED_GATE2", 
-                      "UNSUPPORTED", 
-                      "FAILED"]
+#final status: end of execution, either success or failure.
+#The list itself lives in schemas.py (the provenance record uses it too), so it is written only once.
+FINAL_STATUSES: tuple[str, ...] = get_args(FinalStatus)
 
 # Gate order (§3 rule 12, §8.5 check 7): each action may appear only after the
 # named gate approval for the same request. Used by verify_lineage in Phase 4.
