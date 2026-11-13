@@ -24,8 +24,11 @@ template-module/
 │   │   └── index.ts       bootstrap (migrate, checkpointer setup, listen)
 │   ├── tests/              vitest: schemas, template lifecycle, execution
 │   └── .env.example
-└── web/              React + Vite + Tailwind operator console
 ```
+
+The operator UI is the CASE dashboard in `../dashboard` (React + Vite + Tailwind).
+This module has no front end of its own: it serves `/api` only, and the dashboard
+is the single console that drives it.
 
 ## Quick start
 
@@ -35,7 +38,11 @@ npm install
 cp server/.env.example server/.env      # set DATABASE_URL, OLLAMA_* etc.
 npm run migrate                         # applies migrations (idempotent)
 npm run dev:server                      # http://localhost:8000
-npm run dev:web                         # http://localhost:5173
+
+# the console (separate package, one directory up)
+cd ../dashboard
+npm install
+npm run dev                             # http://localhost:5174, proxies /api to :8000
 ```
 
 AI drafting needs Ollama with the CASE platform's model (Qwen 3.5 9B) available:
@@ -51,8 +58,8 @@ Until Ollama is reachable, every other endpoint works normally — `/generate` r
 Verification:
 
 ```bash
-npm run typecheck   # tsc for server (src + tests) and web
-npm run build       # server dist + web dist
+npm run typecheck   # tsc for server (src + tests)
+npm run build       # server dist
 npm test            # 69 vitest tests: schemas, business rules, HTTP lifecycle, execution, roles
 ```
 

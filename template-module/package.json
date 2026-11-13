@@ -4,14 +4,13 @@
   "version": "1.0.0",
   "description": "Workflow template creation module: manual + AI-assisted drafting, validation, review and approval.",
   "workspaces": [
-    "server",
-    "web"
+    "server"
   ],
   "scripts": {
     "dev:server": "npm run dev -w server",
-    "dev:web": "npm run dev -w web",
-    "build": "npm run build -w server && npm run build -w web",
-    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "start": "npm start -w server",
+    "build": "npm run build -w server",
+    "typecheck": "npm run typecheck -w server",
     "test": "npm test -w server",
     "migrate": "npm run migrate -w server"
   }
