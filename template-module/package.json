@@ -1,0 +1,17 @@
+{
+  "name": "template-module",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Workflow template creation module: manual + AI-assisted drafting, validation, review and approval.",
+  "workspaces": [
+    "server"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev -w server",
+    "start": "npm start -w server",
+    "build": "npm run build -w server",
+    "typecheck": "npm run typecheck -w server",
+    "test": "npm test -w server",
+    "migrate": "npm run migrate -w server"
+  }
+}

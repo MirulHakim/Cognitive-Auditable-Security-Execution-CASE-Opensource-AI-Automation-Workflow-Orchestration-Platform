@@ -34,6 +34,11 @@ interface WorkflowTableProps {
   onRename?: (workflowId: string, newName: string) => void;
   onSelectWorkflow?: (workflowId: string) => void;
   onNavigateToWorkflows: () => void;
+  /**
+   * Mirrors the server's role matrix: auditors are read-only, so the status
+   * toggle and the mutation menu (rename/duplicate/delete) are not rendered.
+   */
+  canMutate?: boolean;
 }
 
 type SortField = "recent" | "name" | "status";
@@ -52,6 +57,7 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
   onRename,
   onNavigateToWorkflows,
   onSelectWorkflow,
+  canMutate = true,
 }) => {
   const [sortField, setSortField] = useState<SortField>("recent");
   const [sortAsc, setSortAsc] = useState<boolean>(false);
@@ -193,25 +199,31 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
 
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2.5">
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-label={`Toggle status for ${item.name}`}
-                          aria-checked={isActive}
-                          onClick={() => onToggleStatus(item.id)}
-                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                            isActive ? "bg-accent-primary" : "bg-strong"
-                          }`}
-                        >
-                          <span
-                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                              isActive ? "translate-x-4" : "translate-x-0"
+                        {canMutate && (
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-label={`Toggle status for ${item.name}`}
+                            aria-checked={isActive}
+                            onClick={() => onToggleStatus(item.id)}
+                            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                              isActive ? "bg-accent-primary" : "bg-strong"
                             }`}
-                          />
-                        </button>
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                                isActive ? "translate-x-4" : "translate-x-0"
+                              }`}
+                            />
+                          </button>
+                        )}
                         <span
                           className={`text-xs font-medium capitalize select-none ${
-                            isActive ? "text-success" : "text-danger"
+                            !canMutate
+                              ? "text-muted"
+                              : isActive
+                                ? "text-success"
+                                : "text-danger"
                           }`}
                         >
                           {item.status}
@@ -220,31 +232,33 @@ export const WorkflowTable: React.FC<WorkflowTableProps> = ({
                     </td>
 
                     <td className="py-3 px-4 text-right">
-                      <button
-                        type="button"
-                        aria-label={`Actions for ${item.name}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
+                      {canMutate && (
+                        <button
+                          type="button"
+                          aria-label={`Actions for ${item.name}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
 
-                          if (activeMenu?.item.id === item.id) {
-                            setActiveMenu(null);
-                            return;
-                          }
+                            if (activeMenu?.item.id === item.id) {
+                              setActiveMenu(null);
+                              return;
+                            }
 
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const menuWidth = 160;
-                          const top = rect.bottom + 6;
-                          const left = rect.right - menuWidth;
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const menuWidth = 160;
+                            const top = rect.bottom + 6;
+                            const left = rect.right - menuWidth;
 
-                          setActiveMenu({
-                            item,
-                            position: { top, left },
-                          });
-                        }}
-                        className="p-1.5 rounded-lg text-muted hover:text-secondary hover:bg-surface-hover transition-colors"
-                      >
-                        <FiMoreVertical className="w-4 h-4 pointer-events-none" />
-                      </button>
+                            setActiveMenu({
+                              item,
+                              position: { top, left },
+                            });
+                          }}
+                          className="p-1.5 rounded-lg text-muted hover:text-secondary hover:bg-surface-hover transition-colors"
+                        >
+                          <FiMoreVertical className="w-4 h-4 pointer-events-none" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
