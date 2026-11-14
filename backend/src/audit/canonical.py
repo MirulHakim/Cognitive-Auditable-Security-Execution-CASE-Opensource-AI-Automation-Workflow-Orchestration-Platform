@@ -150,13 +150,13 @@ RECORD_HASH_FIELDS: tuple[str, ...] = (
     "event_ids", "event_hashes", "lineage_hash", "sealed_at",
 )
 
-
+#list of the whole events in one job
 def compute_lineage_hash(event_hashes: Any) -> str:
     """SHA-256(canonical_json(event_hashes)): one hash for the whole ordered list
     of event hashes. Changing, removing or reordering any event changes it."""
     return sha256_hex(canonical_json(list(event_hashes)))
 
-
+#hash of the whole summary (record), so any change to the record is detected
 def compute_record_hash(record: Any) -> str:
     """SHA-256(canonical_json({field: value for RECORD_HASH_FIELDS})).
 

@@ -300,8 +300,8 @@ class ClassificationOutcomeEnum(str, Enum):
 class TemplateChoiceEnum(str, Enum):
     """Who decided the template (§5.4): lets an auditor see when a human changed the AI's choice."""
     AI_SUGGESTED = "AI_SUGGESTED"                        # no operator template event
-    OPERATOR_SWITCHED = "OPERATOR_SWITCHED"              # TEMPLATE_MANUALLY_SELECTED
-    OPERATOR_REQUESTED_NEW = "OPERATOR_REQUESTED_NEW"    # TEMPLATE_REQUESTED
+    OPERATOR_SWITCHED = "OPERATOR_SWITCHED"              # TEMPLATE_MANUALLY_SELECTED: operator choose different existing template
+    OPERATOR_REQUESTED_NEW = "OPERATOR_REQUESTED_NEW"    # TEMPLATE_REQUESTED: operator asks for new template from prompt
 
 
 class _Part(BaseModel):
@@ -361,7 +361,7 @@ class ProvenanceResult(_Part):
     recipient_hash: Optional[str] = Field(default=None, pattern=HASH_PATTERN)
     document_hash: Optional[str] = Field(default=None, pattern=HASH_PATTERN)
 
-
+#for the whole lineage
 class ProvenanceRecord(BaseModel):
     """The sealed record of one request (§5.4). Stored in provenance_records (append-only)."""
 
