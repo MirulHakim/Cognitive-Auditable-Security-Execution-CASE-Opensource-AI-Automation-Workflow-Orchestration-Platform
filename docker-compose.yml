@@ -7,7 +7,7 @@
 # Connection URLs (development passwords, see backend/db/init/01_roles.sql):
 #   app:        postgresql://case_app:case_app_dev@127.0.0.1:5432/case_dev
 #   migrations: postgresql://case_owner:case_owner_dev@127.0.0.1:5432/case_dev
-#   superuser:  postgresql://postgres:postgres@127.0.0.1:5432/postgres   (tests only)
+#   superuser:  postgresql://postgres:postgres@127.0.0.1:54332/postgres   (tests only)
 #
 # Use 127.0.0.1, not "localhost": the port below is published on IPv4 only, and
 # on Windows "localhost" tries IPv6 (::1) first, where psycopg's async connect hangs.
@@ -20,7 +20,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5432:5433"
     volumes:
       - case-pgdata:/var/lib/postgresql/data
       - ./backend/db/init:/docker-entrypoint-initdb.d:ro
