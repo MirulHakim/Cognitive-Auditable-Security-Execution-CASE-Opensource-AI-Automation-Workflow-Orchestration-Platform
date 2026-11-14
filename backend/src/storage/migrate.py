@@ -6,7 +6,7 @@ Location: src/storage/migrate.py
 
 Run it as the table OWNER (case_owner), never as case_app (§6 role split):
 
-    set CASE_MIGRATION_URL=postgresql://case_owner:case_owner_dev@localhost:5432/case_dev
+    set CASE_MIGRATION_URL=postgresql://case_owner:case_owner_dev@127.0.0.1:5432/case_dev
     python -m src.storage.migrate
 
 Each file runs in its own transaction and is recorded in `schema_migrations`,

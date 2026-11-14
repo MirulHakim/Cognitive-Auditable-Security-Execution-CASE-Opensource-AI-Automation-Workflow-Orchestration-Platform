@@ -153,11 +153,11 @@ From `backend/`, as the owner role:
 
 ```powershell
 # PowerShell
-$env:CASE_MIGRATION_URL = "postgresql://case_owner:case_owner_dev@localhost:5432/case_dev"
+$env:CASE_MIGRATION_URL = "postgresql://case_owner:case_owner_dev@127.0.0.1:5432/case_dev"
 .\.venv\Scripts\python -m src.storage.migrate
 
 # cmd.exe
-set CASE_MIGRATION_URL=postgresql://case_owner:case_owner_dev@localhost:5432/case_dev
+set CASE_MIGRATION_URL=postgresql://case_owner:case_owner_dev@127.0.0.1:5432/case_dev
 .venv\Scripts\python -m src.storage.migrate
 ```
 
@@ -166,8 +166,10 @@ Running it again only applies new files. Never edit a migration that has already
 The app itself connects as `case_app` through the `DATABASE_URL` setting (e.g. in `backend/.env`):
 
 ```
-DATABASE_URL=postgresql://case_app:case_app_dev@localhost:5432/case_dev
+DATABASE_URL=postgresql://case_app:case_app_dev@127.0.0.1:5432/case_dev
 ```
+
+> Always write `127.0.0.1`, not `localhost` (also in pgAdmin / the VS Code database panel). Docker publishes the port on IPv4 only, and on Windows `localhost` tries IPv6 first, so connections can hang.
 
 > These passwords are for local development only.
 
@@ -276,9 +278,13 @@ def generate_file_safely(data) -> str:
 * Run `wsl --status`. If it says *"virtualization is not enabled"*, run `wsl.exe --install --no-distribution` in PowerShell **as Administrator**, then restart the computer.
 * Check Task Manager → Performance → CPU → **Virtualization: Enabled**. If it is disabled, enable Intel VT-x / AMD SVM in the BIOS/UEFI settings.
 
-### Integration tests are skipped: "PostgreSQL not reachable at localhost:5432"
+### Integration tests are skipped: "PostgreSQL not reachable at 127.0.0.1:5432"
 
 * Start the database: `docker compose up -d` (from the repository root), then check `docker compose ps`.
+
+### Integration tests hang forever / database panel says "Connection failed"
+
+* The connection uses `localhost` instead of `127.0.0.1`. On Windows `localhost` tries IPv6 (`::1`) first; Docker only listens on IPv4, and psycopg's async connection then waits forever. Use `127.0.0.1` in `CASE_TEST_ADMIN_URL`, `DATABASE_URL` and in the database panel's host field.
 * Port 5432 already in use: another PostgreSQL is running on your machine. Stop it, or change the port in `docker-compose.yml` and set `CASE_TEST_ADMIN_URL` accordingly.
 
 ### `'.venv' is not recognized as an internal or external command`
