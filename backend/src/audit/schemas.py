@@ -6,9 +6,9 @@ Location: src/audit/schemas.py
 
 Section 3 (the audit event) follows AUDIT_MODULE_PLAN.md §5.1 since Phase 1,
 section 4 (verification result) follows §5.5 since Phase 2,
-sections 6-7 (provenance record, lineage result) follow §5.4 / §8.5 since Phase 4.
-Section 5 was moved unchanged from src/secure_api/schemas.py in Phase 0
-and is revised in Phase 5 (see the TODO there).
+sections 6-7 (provenance record, lineage result) follow §5.4 / §8.5 since Phase 4,
+section 5 (export) and section 8 (read API views) follow §8.6 / §9 since Phase 5.
+The timeline filter (EventFilter) sits right after the audit event.
 """
 
 import re
@@ -118,47 +118,45 @@ class AuditEvent(BaseModel):
         return value.astimezone(timezone.utc)
 
 
-# TODO(Audit Phase 5): revise the timeline schemas below for §9 (flat + grouped by request).
-
-class AuditTimelineEntry(BaseModel):
-    """Denormalized Audit Timeline Entry - formatted for UI display"""
-    #event: what happened, who did it, when, and what was affected.
-    event_id: UUID
-    event_type: AuditEventTypeEnum
-    #who did it, what role they had, and how to contact them.
-    actor_id: UUID
-    actor_name: str  # from users.full_name
-    actor_email: str
-    #action_description will be revised in Phase 5 
-    action_description: str
-    affected_resource_id: Optional[UUID] = None
-    affected_resource_type: Optional[str] = None
-    timestamp: datetime
-    is_verified: Optional[bool] = None  # hash chain status
+def _as_utc(value: Optional[datetime]) -> Optional[datetime]:
+    """Filters typed by a person may have no time zone ("2026-11-01"): read them as UTC."""
+    if value is None:
+        return None
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
-class QueryAuditTimelineRequest(BaseModel):
-    """Request: Query Audit Timeline
-    GET /api/v1/audit/timeline?event_type=USER_ACTION&...
-    """
-    event_type: Optional[AuditEventTypeEnum] = None
-    actor_id: Optional[UUID] = None
-    affected_resource_id: Optional[UUID] = None
+# Timeline filters for GET /events (§9). Replaces the Phase 0 timeline schemas
+# (they had actor names and emails, which audit events never store: rule 5).
+class EventFilter(BaseModel):
+    """Every field is optional; the ones given are combined with AND.
+    date_from / date_to are inclusive."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     date_from: Optional[datetime] = None
     date_to: Optional[datetime] = None
-    search: Optional[str] = None
-    limit: int = Field(default=50, ge=1, le=100)
-    offset: int = Field(default=0, ge=0)
+    action: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    actor_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    actor_role: Optional[ActorRoleEnum] = None
+    outcome: Optional[OutcomeEnum] = None
+    execution_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
 
+    @field_validator("date_from", "date_to")
+    @classmethod
+    def _utc(cls, value: Optional[datetime]) -> Optional[datetime]:
+        return _as_utc(value)
 
-class AuditTimelineResponse(BaseModel):
-    """Response: Audit Timeline Query Results
-    GET /api/v1/audit/timeline
-    """
-    events: List[AuditTimelineEntry]
-    total_count: int
-    limit: int
-    offset: int
+    def matches(self, event: "AuditEvent") -> bool:
+        """The same rules as the SQL WHERE clause in PostgresAuditRepository.query_events."""
+        return ((self.date_from is None or event.event_timestamp >= self.date_from)
+                and (self.date_to is None or event.event_timestamp <= self.date_to)
+                and (self.action is None or event.action == self.action)
+                and (self.actor_id is None or event.actor_id == self.actor_id)
+                and (self.actor_role is None or event.actor_role is self.actor_role)
+                and (self.outcome is None or event.outcome is self.outcome)
+                and (self.execution_id is None or event.execution_id == self.execution_id))
 
 
 # ============================================================================
@@ -228,48 +226,57 @@ class ChainVerificationResult(BaseModel):
 
 
 # ============================================================================
-# 5. AUDIT EXPORT SCHEMAS
+# 5. AUDIT EXPORT (§8.6) - Phase 5
 # ============================================================================
-# TODO(Audit Phase 5): revise for §8.6 (JSON/PDF export with the chain head).
+# The file itself is returned in the HTTP response (not stored on a server).
+# What IS stored is an ExportRecord (table audit_exports): who exported what,
+# and the chain head + file hash at that moment.
 
 class ExportFormatEnum(str, Enum):
-    """Export format options"""
     PDF = "PDF"
     JSON = "JSON"
 
 
-class ExportAuditLogsRequest(BaseModel):
-    """Request: Export Audit Logs
-    POST /api/v1/audit/export
-    """
+class ExportRequest(BaseModel):
+    """Body of POST /api/v1/audit/export. No filter = the whole workspace
+    (the only kind of export whose chain can be re-checked end to end offline)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     format: ExportFormatEnum
+    execution_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
     date_from: Optional[datetime] = None
     date_to: Optional[datetime] = None
-    event_types: Optional[List[AuditEventTypeEnum]] = None
-    include_decision_lineage: bool = True
-    include_verification_status: bool = True
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "format": "PDF",
-                "date_from": "2026-08-01T00:00:00Z",
-                "date_to": "2026-08-20T23:59:59Z",
-                "event_types": ["USER_ACTION", "APPROVAL_GATE"],
-                "include_decision_lineage": True,
-                "include_verification_status": True
-            }
-        }
+    @field_validator("date_from", "date_to")
+    @classmethod
+    def _utc(cls, value: Optional[datetime]) -> Optional[datetime]:
+        return _as_utc(value)
 
 
-class ExportAuditLogsResponse(BaseModel):
-    """Response: Export Audit Logs"""
+class ExportRecord(BaseModel):
+    """One row of audit_exports. Field names = column names (001_audit_tables.sql)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     export_id: UUID
+    workspace_id: UUID
+    exported_by: str = Field(min_length=1, max_length=128)
+    exported_role: ActorRoleEnum
+    exported_at: datetime
     format: ExportFormatEnum
-    file_url: str
-    file_size_bytes: int
-    created_at: datetime
-    expires_at: datetime
+    filters: Dict[str, Any]                  # the ExportRequest filters, as plain JSON
+    record_count: int = Field(ge=0)          # number of events in the file
+    head_seq: int = Field(ge=0)
+    head_hash: str = Field(pattern=HASH_PATTERN)
+    file_hash: str = Field(pattern=HASH_PATTERN)   # SHA-256 of the exact bytes given to the user
+
+    @field_validator("exported_at")
+    @classmethod
+    def _utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("exported_at must be timezone-aware")
+        return value.astimezone(timezone.utc)
 
 
 # ============================================================================
@@ -457,3 +464,74 @@ class LineageVerificationResult(BaseModel):
     @property
     def is_valid(self) -> bool:
         return self.status is LineageStatusEnum.VALID
+
+
+# ============================================================================
+# 8. READ API VIEWS (§9) - Phase 5
+# ============================================================================
+# What the endpoints return. Built by queries.py from stored events and
+# records; nothing here is stored.
+
+class VerifyChainRequest(BaseModel):
+    """Body of POST /verify. Both empty = the whole chain."""
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    from_seq: Optional[int] = Field(default=None, ge=1)
+    to_seq: Optional[int] = Field(default=None, ge=1)
+
+
+class LineageSummary(_Part):
+    """One line per step, for the request list: Objective -> Decision -> Approval -> Result."""
+    objective: str
+    decision: str
+    approvals: List[str]          # e.g. ["GATE1 APPROVED by u-op-1", "GATE2 APPROVED by u-op-1"]
+    result: str
+
+
+class ExecutionIntegrityEnum(str, Enum):
+    NOT_SEALED = "NOT_SEALED"                # no provenance record yet (request still open)
+    NOT_VERIFIED = "NOT_VERIFIED"            # sealed, verify_lineage never run on it
+    LINEAGE_VALID = "LINEAGE_VALID"          # the LAST verify_lineage run said VALID
+    LINEAGE_INVALID = "LINEAGE_INVALID"      # the LAST verify_lineage run said INVALID
+
+
+class ExecutionSummary(BaseModel):
+    """One row of GET /executions."""
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    execution_id: str
+    event_count: int = Field(ge=0)
+    first_event_at: datetime
+    last_event_at: datetime
+    last_action: str
+    provenance_id: Optional[UUID] = None
+    summary: Optional[LineageSummary] = None          # null until the request is sealed
+    integrity_status: ExecutionIntegrityEnum
+    last_lineage_check_at: Optional[datetime] = None  # when integrity_status was decided
+
+
+class ExecutionDetail(BaseModel):
+    """GET /executions/{execution_id}: every event of one request + its provenance record."""
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    execution: ExecutionSummary
+    events: List[AuditEvent]
+    provenance: Optional[ProvenanceRecord] = None
+
+
+class EventChainView(BaseModel):
+    """GET /events/{event_id}: one event and its two neighbours in the chain.
+
+    hash_matches      : recomputing this event's hash gives current_hash
+    linked_to_previous: previous_hash == current_hash of seq-1 (genesis for seq 1);
+                        null if seq-1 cannot be found
+    linked_to_next    : this current_hash == previous_hash of seq+1; null if this is the last event
+    """
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    event: AuditEvent
+    previous_event_hash: Optional[str] = None
+    next_event_previous_hash: Optional[str] = None
+    hash_matches: bool
+    linked_to_previous: Optional[bool] = None
+    linked_to_next: Optional[bool] = None
