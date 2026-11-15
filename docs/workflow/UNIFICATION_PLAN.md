@@ -19,7 +19,7 @@ When this plan is done, the CASE repository contains **one system**:
 
 ### Why
 
-Right now the repo has two backends (Node in `template-module/`, Python in `backend/`), both on port 8000, two databases and two audit chains. All 22 dashboard endpoints go to `template-module`, and the Python backend isn't used by the UI. The team decided (AUDIT_MODULE_PLAN §12.2 #1): **one FastAPI app, one PostgreSQL database.** The panel would also ask why two backend frameworks are used.
+Right now the repo has two backends (Node in `template-module/`, Python in `backend/`), both on port 8000, two databases and two audit chains. All 22 dashboard endpoints go to `template-module`, and the Python backend isn't used by the UI. The team decided (AUDIT_MODULE_PLAN §12.1 #12): **one FastAPI app, one PostgreSQL database.** The panel would also ask why two backend frameworks are used.
 
 ---
 
@@ -43,6 +43,7 @@ backend/
     │   ├── instance_repo.py     SQL for workflow_instances, step_runs
     │   ├── engine.py            LangGraph graph with fixed Gate 1 / Gate 2
     │   ├── instance_service.py  start, respond, cancel, intake, documents
+    │   ├── interim_auth.py      TEMPORARY demo users + /api/operators/me until src/security exists (§7)
     │   └── routes.py            /api/templates, /api/instances
     └── ai_intent/               ← Samantha
         ├── matcher.py           StandardMessage → template or NO_MATCH  (new feature)
@@ -56,7 +57,7 @@ backend/
 ## 3. Ground rules
 
 1. **Python + FastAPI only.** LangGraph and LangChain are the same libraries in Python (`langgraph`, `langchain_ollama`, `langgraph-checkpoint-postgres`). `server.py` already uses `ChatOllama` with `with_structured_output`.
-2. **One database, one pool.** Use `Database` from `src/storage/database.py`. Never open your own connection or read your own DB URL.
+2. **One database, one pool, one AuditService.** `server.py` already starts them through `audit_lifespan`: the shared `Database` is on `app.state.database` and the `AuditService` on `app.state.audit_service`. Use those two. Never create a second `Database()` or `AuditService`, and never open your own connection or read your own DB URL. If you need your own startup code, wrap `audit_lifespan` in a lifespan in `server.py` rather than replacing it. **One exception:** the LangGraph checkpointer needs its own connection settings (`autocommit=True`, `dict_row`), which the shared pool doesn't have, so it gets its own connection to the same `DATABASE_URL` (S2).
 3. **Tables come from migrations.** Add `backend/migrations/004_workflow_tables.sql` onwards. Never edit an applied migration. Migrations run as `case_owner`; the app runs as `case_app`, so add `GRANT`s for your tables in the same migration.
 4. **Keep the dashboard's API contract.** Same paths, same JSON field names (camelCase, e.g. `templateId`, `reviewStatus`), same response wrappers (`{ "template": … }`, `{ "templates": [...] }`, `InstanceDetail`). Errors use `{ "error": { "code", "message", "details" } }` because `dashboard/src/api/client.ts` reads `payload.error`. The shapes are in `dashboard/src/api/types.ts`. In Pydantic, use `alias_generator=to_camel` + `populate_by_name=True`.
 5. **Don't port what other modules own:** audit, users/roles, document rendering. See §8.
@@ -80,7 +81,7 @@ backend/
 | D4 | **Gate 1 rejection closes the request** (`REJECTED_GATE1`). No re-edit. | Matches template-module today. Re-edit is future work. |
 | D5 | **Cancel is its own status, `CANCELLED`**, never `FAILED`. Allowed any time before `JOB_DELIVERED`. Logged as `EXECUTION_CANCELLED` (who + `reason_code`), then `EXECUTION_CLOSED`. | `FAILED` = the system broke. `CANCELLED` = a person decided. Mixing them makes the audit misleading. |
 | D6 | **Approved templates are never edited in place.** Changing one creates version + 1 (`TEMPLATE_CREATED` with `based_on_version`), and the old version stays for old runs. Drafts (`PENDING`/`REJECTED`) can be edited in place and are logged as `TEMPLATE_UPDATED` (`previous_hash`, `template_hash`). | Provenance stores template version + hash, so approved content has to stay fixed. |
-| D7 | **Gate 1 and Gate 2 are fixed engine steps, not template steps.** Remove the `approval` step type from templates (schema, business rules, AI prompt and the dashboard node palette). | Plan Appendix A: "A template cannot define, skip or remove a gate." Two kinds of approval would also make the audit trail ambiguous. |
+| D7 | **Gate 1 and Gate 2 are fixed engine steps, not template steps.** Remove the `approval` step type from templates: schema, business rules and AI prompt (yours); the dashboard node palette (Amirul, §8). | Plan Appendix A: "A template cannot define, skip or remove a gate." Two kinds of approval would also make the audit trail ambiguous. |
 
 > D1 is a deliberate trade-off. One person can complete a whole request alone (draft → approve template → Gate 1 → Gate 2). CASE detects this through the audit trail rather than preventing it. Write it as a limitation in the report, with separation of duties as future work.
 
@@ -93,6 +94,9 @@ backend/
 **Tables** (migration `004_workflow_tables.sql`), ported from `template-module/server/src/db/migrations/`:
 
 - `workflow_templates`: `template_id UUID PK`, `name`, `version INT`, `steps JSONB`, `origin ('MANUAL','AI_DRAFTED')`, `is_active BOOL`, `created_by TEXT`, `created_at`, `updated_at`. **New:** `template_hash TEXT` and `based_on_version INT NULL` (D6).
+- `template_reviews`: `review_id`, `template_id`, `status ('PENDING','APPROVED','REJECTED')`, `reviewed_by`, `comments`, `created_at`.
+- **Do not port** `operators` (goes to `src/security`, §8) or `audit_events`. That name is already used by Audit's table.
+- `created_by` / `reviewed_by` store the user id from `src/security` (no foreign key until that table exists).
 
 **How to compute `template_hash`** (used in every template and Gate 1 event, so it must be computed the same way everywhere): put it in one function and call it everywhere.
 
@@ -107,9 +111,6 @@ def template_hash(name: str, steps: list[dict]) -> str:
 ```
 
 Use the same function for the working copy hash (`content_hash`, `approved_template_hash`, `executed_template_hash`).
-- `template_reviews`: `review_id`, `template_id`, `status ('PENDING','APPROVED','REJECTED')`, `reviewed_by`, `comments`, `created_at`.
-- **Do not port** `operators` (goes to `src/security`, §8) or `audit_events`. That name is already used by Audit's table.
-- `created_by` / `reviewed_by` store the user id from `src/security` (no foreign key until that table exists).
 
 **Don't copy the old migration files.** The 7 files in `template-module/server/src/db/migrations/` become **two new files** that hold the final table shapes (no stacked `ALTER`s):
 
@@ -158,12 +159,12 @@ START
 END
 ```
 
-- **Checkpointer:** `AsyncPostgresSaver` from `langgraph-checkpoint-postgres`, on the same database. `thread_id` = `instance_id` = the audit `execution_id`. Its `setup()` creates tables, so run it once with `case_owner` (add a step to `src/storage/migrate.py` or a script), not from the app as `case_app`. Remove `MemorySaver` and the demo graph from `server.py`.
+- **Checkpointer:** `AsyncPostgresSaver` from `langgraph-checkpoint-postgres`, on the same database but through its **own** connection (`AsyncPostgresSaver.from_conn_string(DATABASE_URL)`), because it needs `autocommit=True` and `dict_row`, which the shared pool doesn't use (§3 rule 2 exception). `thread_id` = `instance_id` = the audit `execution_id`. Its `setup()` creates tables, so run it once as `case_owner` (a small script or a step in `src/storage/migrate.py`), then `GRANT SELECT, INSERT, UPDATE, DELETE` on its tables to `case_app`. Remove `MemorySaver` and the demo graph from `server.py`.
 - **Locking:** at `GATE1_APPROVED`, store `approved_template_hash`. Before `EXECUTION_STARTED`, recompute the working copy hash and stop with `EXECUTION_FAILED` if it differs. Any edit after Gate 1 → `EXECUTION_TEMPLATE_MODIFY_REJECTED`.
 - **Intake step:** if the request came with attachments (Gmail/Telegram), read those. If it was started from the dashboard, pause for an upload as today (`POST /api/instances/{id}/intake`). This pause is not a gate. Intake runs only after Gate 1.
 - **Notification steps** stay simulated (log only, never send). The real send to the requester is `deliver`, after Gate 2.
 - **Document step:** use `src/document_generators/` (reportlab / python-docx / openpyxl). Don't port `exporters.ts` (S4).
-- **Instance statuses** (dashboard): `RUNNING`, `PAUSED`, `COMPLETED`, `REJECTED`, `CANCELLED`. Map to audit `final_status`: COMPLETED → `DELIVERED`, rejected at Gate 1 → `REJECTED_GATE1`, at Gate 2 → `REJECTED_GATE2`, error → `FAILED`, cancel → `CANCELLED` (D5).
+- **Instance statuses** (dashboard): `RUNNING`, `PAUSED`, `COMPLETED`, `REJECTED`, `CANCELLED`, plus a new **`FAILED`** for system errors (add it to your status check, and tell Amirul to add it to `InstanceStatus` in `dashboard/src/api/types.ts`). Map to audit `final_status`: COMPLETED → `DELIVERED`, rejected at Gate 1 → `REJECTED_GATE1`, at Gate 2 → `REJECTED_GATE2`, FAILED → `FAILED`, CANCELLED → `CANCELLED` (D5).
 
 **Tables** (migration `005_workflow_instances.sql`): `workflow_instances` (+ `input JSONB`, + `source TEXT`, + `approved_template_hash TEXT`), `step_runs`. Update the `step_type` check (no `approval`) and add `gate_1`/`gate_2` rows or a separate gate column. Your choice, but the dashboard's run timeline must still show them.
 
@@ -180,6 +181,19 @@ END
 | `POST /api/instances/{id}/cancel` | cancel before delivery (D5) | `workflow:cancel` |
 
 `pendingApproval.kind` stays `"approval"` for gate pauses and `"intake"` for upload pauses. Add `gate: 1 | 2` so the dashboard can label them.
+
+Gates are no longer template steps (D7), but the dashboard's run page still reads `pendingApproval.step.name`, `step.description`, `stepNumber` and `totalSteps` (`dashboard/src/features/runs/RunDetail.tsx`). For a gate pause, send a fixed step object so the current page keeps working, for example:
+
+```python
+GATE_STEPS = {
+    1: {"id": "gate_1", "name": "Gate 1: plan review", "type": "approval",
+        "description": "Check the plan for this request before anything is processed."},
+    2: {"id": "gate_2", "name": "Gate 2: final review", "type": "approval",
+        "description": "Check the generated document before it is delivered."},
+}
+```
+
+`type: "approval"` here is only for display (the dashboard's types still know it); templates themselves can no longer contain `approval` steps. Count the two gates in `totalSteps`, and record them in `step_runs` so the run timeline shows them.
 
 ### S3 — AI intent classification (`src/ai_intent/`)
 
@@ -231,9 +245,9 @@ Plus `docs/audit/README.md` sections 3–7 (how to call it, `details` rules, err
 
 Short version:
 
-- Take an `AuditLogger` and a `ProvenanceSealer` (`from src.audit.port import AuditLogger, ProvenanceSealer`) as parameters. `server.py` builds the real `AuditService` once and passes the same object for both. In tests, pass one `MemoryAuditLogger` for both: `.events` holds what was logged and `.sealed` holds what was sealed.
+- Take an `AuditLogger` and a `ProvenanceSealer` (`from src.audit.port import AuditLogger, ProvenanceSealer`) as parameters. At runtime, pass `app.state.audit_service` for both (it is built once by `audit_lifespan`). In tests, pass one `MemoryAuditLogger` for both: `.events` holds what was logged and `.sealed` holds what was sealed.
 - Call `await audit.log_event(workspace_id=…, actor=…, role=…, action=…, target=…, source=…, outcome=…, details=…, execution_id=…, session=…)`.
-  - `workspace_id`: the workspace UUID (one per organisation; for the demo, one fixed value from config).
+  - `workspace_id`: the workspace UUID (one per organisation). For the demo, read it from the environment variable `CASE_WORKSPACE_ID`, so Audit's API and your module use the same value.
   - `role`: `ADMIN | OPERATOR | AUDITOR | SYSTEM | AI` (uppercase). The AI itself logs with `actor="qwen3.5:9b"`, `role="AI"`.
   - `target`: `"template:<id>"` or `"execution:<id>"`.
   - `source`: `WEB_APP` for dashboard actions; the request's channel (`GMAIL`, `TELEGRAM`) for request events.
@@ -270,10 +284,12 @@ Short version:
 
 ## 7. Users and permissions (interim)
 
-`src/security/` (Amirul) provides `get_current_user` (user id, role, workspace id) and `require_permission(...)`. Until it exists:
+`src/security/` (Amirul) will provide `get_current_user` (user id, role, workspace id), `require_permission(...)` and the `/api/operators` routes. Until it exists, the dashboard can't even log in against FastAPI: `dashboard/src/context/SessionContext.tsx` calls `GET /api/operators/me` first. So add a **small, clearly temporary** stand-in:
 
-- The dashboard sends the header `x-operator-id` (an id or an email, see `client.ts`). Write your routes against a `get_current_user` dependency, so switching to the real one later only changes the import.
-- Roles: `admin`, `operator`, `auditor`. The permission matrix is in `template-module/server/src/auth/operators.ts`: operators have all `template:*` and `workflow:*` permissions, admins have everything plus member management, auditors are read-only.
+- One file, `backend/src/workflow/interim_auth.py`, with a fixed list of the three demo users the dashboard already offers (`DEMO_IDENTITIES` in `client.ts`): `aisyah@workspace.local` → admin, `aiman@workspace.local` → operator, `chong@workspace.local` → auditor.
+- `get_current_user` reads the `x-operator-id` header (an id or one of those emails) and returns user id, role and workspace id. `require_permission(...)` uses the matrix from `template-module/server/src/auth/operators.ts`: operators have all `template:*` and `workflow:*` permissions, admins have everything, auditors are read-only.
+- `GET /api/operators/me` only, returning the same shape as today (`Me` in `types.ts`). **No** operators table, member management or invites; that is Amirul's.
+- Put `# TEMPORARY: replace with src/security when Amirul's module exists` at the top. All your routes import `get_current_user` / `require_permission` from this one file, so the switch later only changes the import.
 - Map to audit roles in uppercase (`ADMIN`, `OPERATOR`, `AUDITOR`).
 
 ---
@@ -283,7 +299,7 @@ Short version:
 | Part of template-module | Goes to | Owner |
 |---|---|---|
 | `auditLog.ts`, `/api/audit`, `audit_events` table | `src/audit` (`/api/v1/audit/...`). The dashboard audit page gets repointed and adapted to its response shape | Ain |
-| `operators` table, `/api/operators`, `auth/` | `src/security` | Amirul |
+| `operators` table, `/api/operators` (members, roles, invites), `auth/` | `src/security`. Until then you only provide the temporary `/api/operators/me` (§7) | Amirul |
 | Gmail / Telegram ingress → `JOB_RECEIVED` | Ingress → `src/standardization` → your `start_request` | Amirul + Ain |
 | `exporters.ts` | not ported; `src/document_generators` is used | — |
 | Dashboard changes (remove the `approval` node, add the Gate 1/2 label, a "new version" button) | `dashboard/` | Amirul, with you |
@@ -294,7 +310,7 @@ Short version:
 
 Do these in order. Each step has a check; don't start the next step until it passes.
 
-1. **Setup.** Add migrations `004`/`005`. In `server.py`, build `Database` and `AuditService` once at startup and include the workflow router. Remove the demo graph and `MemorySaver`.
+1. **Setup.** Add migrations `004`/`005`. In `server.py`, keep `audit_lifespan` (it already creates the one `Database` and `AuditService`, on `app.state.database` and `app.state.audit_service`) and include the workflow router. Remove the demo graph and `MemorySaver`.
    *Check:* migrations apply on a fresh database; `server.py` starts; the existing tests still pass (`python -m pytest`).
 2. **Template store (S1).**
    *Check:* every `/api/templates` route works from the dashboard against FastAPI; each template change writes its audit event in the same transaction (pattern A); tests cover the lifecycle (create → approve/reject → edit draft → new version → deactivate/activate) and the business rules.
@@ -303,8 +319,8 @@ Do these in order. Each step has a check; don't start the next step until it pas
 4. **AI intent classification (S3).**
    *Check:* `match_template` returns a match or NO_MATCH from a `StandardMessage` (Ollama mocked in tests); NO_MATCH → request new template → it runs once under Gate 1 and stays PENDING (D2).
 5. **End-to-end.**
-   *Check:* one Telegram or Gmail request goes all the way and its provenance verifies; changing one audit row makes verification fail.
-6. **Remove the old server.** Delete `template-module/` and update the root README.
+   *Check:* one request goes all the way and its provenance verifies; changing one audit row makes verification fail. Ingress (Gmail/Telegram) is Amirul's and may not exist yet: build the `StandardMessage` with `standardize_message(...)` from a test payload (see `backend/tests/standardization/fixtures/`) and call `start_request` directly. **Don't build Ingress.**
+6. **Remove the old server.** Delete `template-module/` and update the root README. **Only after** Amirul's `src/security` serves the `/api/operators` routes (members, roles); otherwise the dashboard's Employees and Settings pages break.
    *Check:* the dashboard still works with only FastAPI running on `127.0.0.1:8000`.
 
 ### Tests
@@ -348,15 +364,15 @@ Prompts 2 and 14 stop before making changes that are hard to undo, so you can ch
 
 2. *"Do §9 step 1, migrations only: write backend/migrations/004_workflow_tables.sql and 005_workflow_instances.sql as described in S1 and S2 (not copied from template-module), with GRANTs for case_app. Stop and show me the SQL before running anything."*
 
-3. *"Do the rest of §9 step 1: in server.py build Database + AuditService once at startup and pass the same AuditService wherever an AuditLogger or ProvenanceSealer is needed. Remove the demo graph, MemorySaver, IntentAnalysis and the /api/jobs routes. Run `python -m pytest -m \"not integration\"` and report the result."*
+3. *"Do the rest of §9 step 1 in server.py. Keep audit_lifespan: it already creates the one Database (app.state.database) and AuditService (app.state.audit_service). Don't create a second Database or AuditService; use app.state.audit_service wherever an AuditLogger or ProvenanceSealer is needed. Remove the demo graph, MemorySaver, IntentAnalysis and the /api/jobs routes. Don't touch the audit or secure_api routers. Run `python -m pytest -m \"not integration\"` and report the result."*
 
 4. *"S1 part 1: create src/workflow/schemas.py (Pydantic, camelCase aliases matching dashboard/src/api/types.ts), rules.py (business rules from businessRules.ts, without the `approval` step type) and the template_hash function from S1. Add unit tests in backend/tests/workflow/. Run the tests."*
 
 5. *"S1 part 2: create src/workflow/template_repo.py and template_service.py: create, update draft, approve (with self_approved), reject, activate, deactivate, and create new version. Log the audit events from §6 with pattern A (log_event with session=tx as the last step). Leave AI generation for later. Tests use MemoryAuditLogger to check which events were logged. Run the tests."*
 
-6. *"S1 part 3: create src/workflow/routes.py for every /api/templates route in S1, with the error envelope from §3 rule 4 and a get_current_user dependency that reads the x-operator-id header (§7). Include the router in server.py. Run the tests."*
+6. *"S1 part 3: create src/workflow/interim_auth.py exactly as in §7 (three demo users, get_current_user, require_permission, GET /api/operators/me only, marked TEMPORARY). Then create src/workflow/routes.py for every /api/templates route in S1, with the error envelope from §3 rule 4, using interim_auth. Include the routers in server.py. Run the tests."*
 
-7. *"S2 part 1: create src/workflow/engine.py: a LangGraph graph with fixed gate_1 and gate_2 nodes around the template's steps, as in the S2 diagram, using AsyncPostgresSaver. No document generation yet. Add tests for approving and rejecting at each gate. Run the tests."*
+7. *"S2 part 1: create src/workflow/engine.py: a LangGraph graph with fixed gate_1 and gate_2 nodes around the template's steps, as in the S2 diagram. Use AsyncPostgresSaver with its own connection as described in S2 (not the shared pool), and write the one-time setup script with its GRANTs. Use the fixed GATE_STEPS objects from S2 for gate pauses. No document generation yet. Add tests for approving and rejecting at each gate. Run the tests."*
 
 8. *"S2 part 2: create instance_repo.py, instance_service.py and the /api/instances routes for list, get, start, respond and cancel. Use pattern B for gate decisions and cancel. At the end of every request log EXECUTION_CLOSED with the right final_status, then call sealer.seal_provenance. Run the tests."*
 
@@ -368,6 +384,6 @@ Prompts 2 and 14 stop before making changes that are hard to undo, so you can ch
 
 12. *"S3 part 2: create src/ai_intent/matcher.py (match_template) and start_request as described in S3. Add tests for a match, for NO_MATCH, and for a request-drafted template that runs once under Gate 1 and stays PENDING (D2). Run the tests."*
 
-13. *"Do §9 step 5: run one request end to end and check that its provenance verifies with verify_lineage. Report what passed and what didn't."*
+13. *"Do §9 step 5 as an integration test: build a StandardMessage with standardize_message from a Telegram fixture in backend/tests/standardization/fixtures/, call start_request directly, approve Gate 1 and Gate 2, and check that the sealed provenance verifies with verify_lineage. Don't build Ingress. Report what passed and what didn't."*
 
-14. *"Do §9 step 6 only after I confirm: list what deleting template-module/ will remove, then wait. After I confirm, delete it and update the root README."*
+14. *"Do §9 step 6 only after I confirm, and only once src/security serves the /api/operators routes: list what deleting template-module/ will remove, then wait. After I confirm, delete it, switch the imports from interim_auth to src/security, delete interim_auth.py, and update the root README."*
