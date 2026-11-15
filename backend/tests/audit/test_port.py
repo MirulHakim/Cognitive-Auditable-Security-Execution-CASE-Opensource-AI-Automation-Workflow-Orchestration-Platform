@@ -18,6 +18,7 @@ def test_port_names_exported_from_the_audit_package():
     assert audit_pkg.AuditLogger is port.AuditLogger
     assert audit_pkg.MemoryAuditLogger is port.MemoryAuditLogger
     assert audit_pkg.NullAuditLogger is port.NullAuditLogger
+    assert audit_pkg.ProvenanceSealer is port.ProvenanceSealer
 
 
 def test_port_has_no_imports_from_the_rest_of_the_audit_module():
@@ -35,3 +36,24 @@ async def test_memory_logger_records_calls():
     logger = port.MemoryAuditLogger()
     await logger.log_event(action="JOB_RECEIVED", outcome="SUCCESS")
     assert logger.events == [{"action": "JOB_RECEIVED", "outcome": "SUCCESS"}]
+
+
+async def test_null_logger_seal_does_nothing():
+    assert await port.NullAuditLogger().seal_provenance("ws-1", "exec-1") is None
+
+
+async def test_memory_logger_records_seal_calls():
+    logger = port.MemoryAuditLogger()
+    await logger.seal_provenance("ws-1", "exec-1")
+    await logger.seal_provenance("ws-1", "exec-2")
+    assert logger.sealed == [("ws-1", "exec-1"), ("ws-1", "exec-2")]
+    assert logger.events == []      # sealing is not logging
+
+
+def test_audit_service_matches_the_sealer_contract():
+    # The app passes AuditService wherever a ProvenanceSealer is expected, so the
+    # method names and parameters must stay the same as in port.py.
+    contract = inspect.signature(port.ProvenanceSealer.seal_provenance)
+    real = inspect.signature(audit_pkg.AuditService.seal_provenance)
+    assert list(real.parameters) == list(contract.parameters)
+    assert inspect.iscoroutinefunction(audit_pkg.AuditService.seal_provenance)

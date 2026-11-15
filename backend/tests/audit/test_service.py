@@ -217,6 +217,13 @@ VALID = {
     "TEMPLATE_CREATED": {"template_id": "tpl-3", "template_version": 1, "template_hash": HASH_A,
                          "origin": "AI_DRAFTED"},
     "TEMPLATE_DEACTIVATED": {"template_id": "tpl-3", "template_version": 1, "reason_code": "OUTDATED"},
+    "TEMPLATE_APPROVED": {"template_id": "tpl-3", "template_version": 1, "template_hash": HASH_A,
+                          "self_approved": True},
+    "TEMPLATE_REJECTED": {"template_id": "tpl-3", "template_version": 1, "reason_code": "INCOMPLETE_STEPS"},
+    "TEMPLATE_UPDATED": {"template_id": "tpl-3", "template_version": 1, "previous_hash": HASH_A,
+                         "template_hash": HASH_B, "changed_fields": ["name", "steps.2.description"]},
+    "TEMPLATE_ACTIVATED": {"template_id": "tpl-3", "template_version": 1},
+    "EXECUTION_CANCELLED": {"reason_code": "NO_LONGER_NEEDED"},
     "TEMPLATE_INSTANTIATED": {"template_id": "tpl-3", "template_version": 1, "working_copy_id": "wc-1",
                               "revision": 0, "content_hash": HASH_A},
     "EXECUTION_TEMPLATE_MODIFIED": {"working_copy_id": "wc-1", "revision": 1, "previous_hash": HASH_A,
@@ -276,9 +283,23 @@ class TestRequiredDetails:
         ("STANDARDIZATION_FAILED", {"stage": "message", "source": "GMAIL", "code": "X",
                                     "error_fields": ["ali@example.com"]}),
         ("MESSAGE_STANDARDIZED", dict(VALID["MESSAGE_STANDARDIZED"], body_truncated="no")),
+        ("TEMPLATE_APPROVED", dict(VALID["TEMPLATE_APPROVED"], self_approved="yes")),     # must be a real bool
+        ("TEMPLATE_APPROVED", dict(VALID["TEMPLATE_APPROVED"], self_approved=1)),         # 1 is not True
+        ("TEMPLATE_REJECTED", dict(VALID["TEMPLATE_REJECTED"], reason_code="steps missing")),  # code, not free text
+        ("TEMPLATE_UPDATED", dict(VALID["TEMPLATE_UPDATED"], changed_fields=["ali@example.com"])),  # names only
+        ("TEMPLATE_CREATED", dict(VALID["TEMPLATE_CREATED"], based_on_version=-1)),
+        ("EXECUTION_CANCELLED", {"reason_code": "user changed their mind"}),
     ])
     async def test_strict_types(self, service, action, details):
         await _rejected(service, "INVALID_REQUIRED_DETAILS", action=action, details=details)
+
+    async def test_template_created_accepts_based_on_version(self, service):
+        details = dict(VALID["TEMPLATE_CREATED"], template_version=2, based_on_version=1)
+        event = await service.append_event(**event_kwargs(action="TEMPLATE_CREATED", details=details))
+        assert event.details["based_on_version"] == 1
+
+    async def test_execution_closed_accepts_cancelled(self, service):
+        await service.append_event(**event_kwargs(action="EXECUTION_CLOSED", details={"final_status": "CANCELLED"}))
 
     async def test_ai_template_id_key_must_be_present_even_if_null(self, service):
         details = {k: v for k, v in VALID["TEMPLATE_MANUALLY_SELECTED"].items() if k != "ai_template_id"}
