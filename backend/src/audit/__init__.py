@@ -7,7 +7,7 @@ See docs/audit/AUDIT_MODULE_PLAN.md.
 
 from .catalogue import AuditAction
 from .errors import AuditValidationError, ProvenanceError
-from .port import AuditLogger, MemoryAuditLogger, NullAuditLogger
+from .port import AuditLogger, MemoryAuditLogger, NullAuditLogger, ProvenanceSealer
 from .repository import AuditRepository, ChainHead, InMemoryAuditRepository, PostgresAuditRepository
 from .schemas import (AuditEvent, ChainBreakReasonEnum, ChainVerificationResult, LineageProblemEnum,
                       LineageStatusEnum, LineageVerificationResult, ProvenanceRecord, TemplateChoiceEnum,
@@ -38,4 +38,5 @@ __all__ = [
     "MemoryAuditLogger",
     "NullAuditLogger",
     "PostgresAuditRepository",
+    "ProvenanceSealer",
 ]

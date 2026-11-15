@@ -18,12 +18,15 @@ PLAN_ACTIONS = {
     "AI_TEMPLATE_DRAFTED": "AI_DECISION", "AI_CONTENT_GENERATED": "AI_DECISION",
     "TEMPLATE_MANUALLY_SELECTED": "USER_ACTION", "TEMPLATE_REQUESTED": "USER_ACTION",
     "TEMPLATE_CREATED": "USER_ACTION", "TEMPLATE_DEACTIVATED": "USER_ACTION",
+    "TEMPLATE_APPROVED": "USER_ACTION", "TEMPLATE_REJECTED": "USER_ACTION",
+    "TEMPLATE_UPDATED": "USER_ACTION", "TEMPLATE_ACTIVATED": "USER_ACTION",
     "EXECUTION_TEMPLATE_MODIFIED": "USER_ACTION", "REQUEST_UNSUPPORTED": "USER_ACTION",
     "TEMPLATE_INSTANTIATED": "SYSTEM_ACTION", "EXECUTION_TEMPLATE_MODIFY_REJECTED": "SECURITY_EVENT",
     "GATE1_SUBMITTED": "STATE_CHANGE",
     "GATE1_APPROVED": "APPROVAL_GATE", "GATE1_REJECTED": "APPROVAL_GATE",
     "GATE2_APPROVED": "APPROVAL_GATE", "GATE2_REJECTED": "APPROVAL_GATE",
     "EXECUTION_STARTED": "STATE_CHANGE", "EXECUTION_FAILED": "STATE_CHANGE", "EXECUTION_CLOSED": "STATE_CHANGE",
+    "EXECUTION_CANCELLED": "USER_ACTION",
     "ATTACHMENT_EXTRACTED": "SYSTEM_ACTION",
     "DOCUMENT_GENERATED": "SYSTEM_ACTION", "JOB_DELIVERED": "SYSTEM_ACTION",
     "INTEGRATION_CONNECTED": "USER_ACTION", "INTEGRATION_DISCONNECTED": "USER_ACTION",
@@ -44,6 +47,11 @@ PLAN_REQUIRED_KEYS = {
     "AI_TEMPLATE_DRAFTED": {"template_id", "template_version", "template_hash", "prompt_hash"},
     "TEMPLATE_CREATED": {"template_id", "template_version", "template_hash", "origin"},
     "TEMPLATE_DEACTIVATED": {"template_id", "template_version", "reason_code"},
+    "TEMPLATE_APPROVED": {"template_id", "template_version", "template_hash", "self_approved"},
+    "TEMPLATE_REJECTED": {"template_id", "template_version", "reason_code"},
+    "TEMPLATE_UPDATED": {"template_id", "template_version", "previous_hash", "template_hash", "changed_fields"},
+    "TEMPLATE_ACTIVATED": {"template_id", "template_version"},
+    "EXECUTION_CANCELLED": {"reason_code"},
     "TEMPLATE_INSTANTIATED": {"template_id", "template_version", "working_copy_id", "revision", "content_hash"},
     "EXECUTION_TEMPLATE_MODIFIED": {"working_copy_id", "revision", "previous_hash", "content_hash", "changed_fields"},
     "GATE1_APPROVED": {"revision", "approved_template_hash"},
@@ -64,7 +72,7 @@ PLAN_REQUIRED_KEYS = {
 class TestActions:
     def test_actions_match_the_plan(self):
         assert {a.value for a in AuditAction} == set(PLAN_ACTIONS)
-        assert len(AuditAction) == 41
+        assert len(AuditAction) == 46
 
     def test_every_action_has_the_planned_event_type(self):
         assert set(EVENT_TYPES) == set(AuditAction)
@@ -117,7 +125,8 @@ class TestForbiddenKeys:
 
 class TestLifecycleConstants:
     def test_final_statuses(self):
-        assert FINAL_STATUSES == ("DELIVERED", "REJECTED_GATE1", "REJECTED_GATE2", "UNSUPPORTED", "FAILED")
+        assert FINAL_STATUSES == ("DELIVERED", "REJECTED_GATE1", "REJECTED_GATE2", "UNSUPPORTED", "FAILED",
+                                  "CANCELLED")
 
     def test_gate_order_rules(self):
         assert {a.value: g.value for a, g in REQUIRED_PRIOR_GATE.items()} == {

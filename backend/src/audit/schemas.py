@@ -292,7 +292,8 @@ class ExportRecord(BaseModel):
 # Only ids, labels and hashes are stored here, never content (rule 5).
 
 # Values of EXECUTION_CLOSED.final_status (catalogue.FINAL_STATUSES reads them from here).
-FinalStatus = Literal["DELIVERED", "REJECTED_GATE1", "REJECTED_GATE2", "UNSUPPORTED", "FAILED"]
+# CANCELLED = a person stopped the request (EXECUTION_CANCELLED); FAILED = the system broke. Never mixed (D5).
+FinalStatus = Literal["DELIVERED", "REJECTED_GATE1", "REJECTED_GATE2", "UNSUPPORTED", "FAILED", "CANCELLED"]
 
 # The template version format belongs to the template store, so text and numbers are both kept as-is.
 TemplateVersion = Union[str, int]

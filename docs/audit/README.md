@@ -39,6 +39,17 @@ async def add_to_whitelist(..., audit: AuditLogger) -> None:
     ...
 ```
 
+The Workflow Engine also takes a `ProvenanceSealer` (same file) to seal each request when it closes. The app passes the same `AuditService` object for both. In tests, `MemoryAuditLogger` implements both and records seal calls in `.sealed`.
+
+```python
+from src.audit.port import AuditLogger, ProvenanceSealer
+
+class WorkflowEngine:
+    def __init__(self, audit: AuditLogger, sealer: ProvenanceSealer) -> None: ...
+```
+
+**To connect a module to Audit you only need** `src/audit/port.py` (the interface), `src/audit/catalogue.py` (action names, required details, gate order) and `src/audit/errors.py` (error codes), plus sections 3–7 below. Everything else in `src/audit/` is internal.
+
 ### 2. How the app builds the real one
 
 ```python
@@ -128,7 +139,7 @@ Every event of a request carries the same `execution_id` (the LangGraph `thread_
 | 2. Operator switches template | `TEMPLATE_MANUALLY_SELECTED` | `ai_template_id` (`null` after NO_MATCH), `template_id`, `template_version`, `source_template_hash` | B |
 | 2. Operator asks AI for a new one | `TEMPLATE_REQUESTED` | `prompt_hash` (hash of the prompt, **never the text**) | B |
 | | `AI_TEMPLATE_DRAFTED` | `template_id`, `template_version`, `template_hash`, `prompt_hash` | B |
-| | `TEMPLATE_CREATED` (operator saves it) | `template_id`, `template_version`, `template_hash`, `origin` (`MANUAL` \| `AI_DRAFTED`) | A |
+| | `TEMPLATE_CREATED` (operator saves it) | `template_id`, `template_version`, `template_hash`, `origin` (`MANUAL` \| `AI_DRAFTED`); optional `based_on_version` | A |
 | 2. Operator rejects after NO_MATCH | `REQUEST_UNSUPPORTED` | free (e.g. `reason_code`) | B |
 | 3. Working copy created | `TEMPLATE_INSTANTIATED` | `template_id`, `template_version`, `working_copy_id`, `revision`, `content_hash` | B |
 | 3. Working copy edited (if editing exists) | `EXECUTION_TEMPLATE_MODIFIED` | `working_copy_id`, `revision`, `previous_hash`, `content_hash`, `changed_fields` (field **names** only) | B |
@@ -141,9 +152,10 @@ Every event of a request carries the same `execution_id` (the LangGraph `thread_
 | | `AI_CONTENT_GENERATED` | free | B |
 | | `DOCUMENT_GENERATED` | free (e.g. `document_hash`) | B |
 | | `EXECUTION_FAILED` | free (e.g. `reason_code`) | B |
+| Any time before delivery | `EXECUTION_CANCELLED` (a person stopped it; never use `EXECUTION_FAILED` for this) | `reason_code` | B |
 | 6. Gate 2 | `GATE2_APPROVED` / `GATE2_REJECTED` | `document_hash`, `comment_hash` (optional) | B |
 | 7. Delivery (**after** `GATE2_APPROVED`) | `JOB_DELIVERED` | free. Log **after** the send succeeds; retry the log once | B |
-| 8. Close (exactly once) | `EXECUTION_CLOSED` | `final_status`: `DELIVERED` \| `REJECTED_GATE1` \| `REJECTED_GATE2` \| `UNSUPPORTED` \| `FAILED` | B |
+| 8. Close (exactly once) | `EXECUTION_CLOSED` | `final_status`: `DELIVERED` \| `REJECTED_GATE1` \| `REJECTED_GATE2` \| `UNSUPPORTED` \| `FAILED` \| `CANCELLED` | B |
 
 After `EXECUTION_CLOSED`, call `await audit.seal_provenance(workspace_id, execution_id)`. Audit then builds the request's lineage record (see [Sealing a request](#sealing-a-request-provenance-phase-4)).
 
@@ -164,6 +176,10 @@ After `EXECUTION_CLOSED`, call `await audit.seal_provenance(workspace_id, execut
 |---|---|---|---|
 | Template saved outside a request (e.g. demo templates) | `TEMPLATE_CREATED` | as above | A |
 | ADMIN deactivates a template | `TEMPLATE_DEACTIVATED` | `template_id`, `template_version`, `reason_code` | A |
+| Template approved (by anyone, including its creator) | `TEMPLATE_APPROVED` | `template_id`, `template_version`, `template_hash`, `self_approved` (`true` when approver = creator) | A |
+| Template rejected | `TEMPLATE_REJECTED` | `template_id`, `template_version`, `reason_code` (a code, never the comment text); optional `comment_hash` | A |
+| Draft edited (never an approved template; that needs a new version) | `TEMPLATE_UPDATED` | `template_id`, `template_version`, `previous_hash`, `template_hash`, `changed_fields` (names only) | A |
+| Deactivated template switched back on | `TEMPLATE_ACTIVATED` | `template_id`, `template_version` | A |
 
 #### Ingress, integrations, security
 
@@ -211,10 +227,10 @@ Each run is stored in `hash_chain_verifications` and logged as `AUDIT_INTEGRITY_
 
 ## Sealing a request (provenance, Phase 4)
 
-When a request ends, the Workflow Engine logs `EXECUTION_CLOSED` and then calls:
+When a request ends, the Workflow Engine logs `EXECUTION_CLOSED` and then calls `seal_provenance` on its `ProvenanceSealer` (from `src.audit.port`; at runtime it is the `AuditService`):
 
 ```python
-record = await audit.seal_provenance(workspace_id, execution_id)
+record = await sealer.seal_provenance(workspace_id, execution_id)
 ```
 
 Audit collects every event of that request (up to `EXECUTION_CLOSED`) and writes **one** record to `provenance_records`:
