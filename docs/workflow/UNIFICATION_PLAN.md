@@ -3,7 +3,7 @@
 **Owner:** Samantha (Workflow Engine + AI Intent Classification)
 **Status:** decisions settled. Reply only if one of them doesn't work for your module.
 
-> **For the AI coding assistant:** read this whole file, `docs/audit/README.md` (sections 3–7), `backend/src/audit/port.py`, `catalogue.py`, `errors.py`, `docs/audit/AUDIT_MODULE_PLAN.md` Appendix A and `backend/server.py` before writing code. Use the code in `template-module/server/src/` as the reference for behaviour, but write everything in Python inside `backend/`. Follow the order in §9. After each step, run its check and the tests, then stop and report what changed before starting the next step. Don't change anything in §4 (Decisions) or in `src/audit/` without asking.
+> **For the AI coding assistant:** read this whole file, `docs/audit/README.md` (sections 3–7), `backend/src/audit/port.py`, `catalogue.py`, `errors.py`, `docs/audit/AUDIT_MODULE_PLAN.md` Appendix A and `backend/server.py` before writing code. Use the code in `template-module/server/src/` as the reference for behaviour, but write everything in Python inside `backend/`. Follow the order in §9; §12 splits it into small prompts, one at a time. After each step, run its check and the tests, then stop and report what changed before starting the next step. Don't change anything in §4 (Decisions) or in `src/audit/` without asking.
 
 ---
 
@@ -250,14 +250,14 @@ Short version:
 | `TEMPLATE_CREATED` | `TEMPLATE_CREATED` | `template_id`, `template_version`, `template_hash`, `origin` (+ `based_on_version` for new versions) | same |
 | `TEMPLATE_DEACTIVATED` | `TEMPLATE_DEACTIVATED` | `template_id`, `template_version`, `reason_code` | same |
 | `TEMPLATE_GENERATED` | `AI_TEMPLATE_DRAFTED` | `template_id`, `template_version`, `template_hash`, `prompt_hash` | rename, **no prompt text** |
-| `TEMPLATE_APPROVED` | `TEMPLATE_APPROVED` | `template_id`, `template_version`, `template_hash`, `self_approved` | Ain adds |
-| `TEMPLATE_REJECTED` | `TEMPLATE_REJECTED` | `template_id`, `template_version`, `reason_code` | Ain adds |
-| `TEMPLATE_UPDATED` | `TEMPLATE_UPDATED` (drafts only) | `template_id`, `template_version`, `previous_hash`, `template_hash`, `changed_fields` | Ain adds |
-| `TEMPLATE_ACTIVATED` | `TEMPLATE_ACTIVATED` (re-activation only; approval already activates) | `template_id`, `template_version` | Ain adds |
+| `TEMPLATE_APPROVED` | `TEMPLATE_APPROVED` | `template_id`, `template_version`, `template_hash`, `self_approved` | ready (new) |
+| `TEMPLATE_REJECTED` | `TEMPLATE_REJECTED` | `template_id`, `template_version`, `reason_code` | ready (new) |
+| `TEMPLATE_UPDATED` | `TEMPLATE_UPDATED` (drafts only) | `template_id`, `template_version`, `previous_hash`, `template_hash`, `changed_fields` | ready (new) |
+| `TEMPLATE_ACTIVATED` | `TEMPLATE_ACTIVATED` (re-activation only; approval already activates) | `template_id`, `template_version` | ready (new) |
 | `WORKFLOW_STARTED` | `TEMPLATE_INSTANTIATED`, then `EXECUTION_STARTED` after Gate 1 | see README §7 | split |
 | `APPROVAL_GRANTED` / `_REJECTED` | `GATE1_APPROVED` / `GATE1_REJECTED`, `GATE2_APPROVED` / `GATE2_REJECTED` | Gate 1: `revision`, `approved_template_hash` · Gate 2: `document_hash` | rename |
 | `WORKFLOW_INPUT_READ` | `ATTACHMENT_EXTRACTED` | `attachment_count`, `file_hashes`, `extracted_chars` | rename, **no file name** |
-| `WORKFLOW_CANCELLED` | `EXECUTION_CANCELLED`, then `EXECUTION_CLOSED` (`CANCELLED`) | `reason_code` · `final_status` | Ain adds |
+| `WORKFLOW_CANCELLED` | `EXECUTION_CANCELLED`, then `EXECUTION_CLOSED` (`CANCELLED`) | `reason_code` · `final_status` | ready (new) |
 | `MEMBER_*` (4 events) | owned by `src/security` (Amirul) | — | not yours |
 | — | `AI_TEMPLATE_SELECTED` / `AI_TEMPLATE_NO_MATCH` | `template_id`, `template_version`, `source_template_hash`, `confidence` / `candidates_checked`, `reason_code` (+ optional `intent_label`) | new |
 | — | `TEMPLATE_MANUALLY_SELECTED`, `TEMPLATE_REQUESTED`, `REQUEST_UNSUPPORTED`, `GATE1_SUBMITTED`, `AI_CONTENT_GENERATED`, `DOCUMENT_GENERATED`, `JOB_DELIVERED`, `EXECUTION_FAILED`, `EXECUTION_CLOSED` | README §7 | new |
@@ -313,17 +313,61 @@ Put them in `backend/tests/workflow/` and `backend/tests/ai_intent/`. Mark tests
 
 ---
 
-## 10. Audit side (Ain, in parallel)
+## 10. Audit side: already done, nothing for you to build
 
-- Add to `catalogue.py`: `TEMPLATE_APPROVED` (`self_approved`), `TEMPLATE_REJECTED`, `TEMPLATE_UPDATED`, `TEMPLATE_ACTIVATED`, `EXECUTION_CANCELLED`, final status `CANCELLED`, `based_on_version` on `TEMPLATE_CREATED`.
-- Verify check: the run's template was approved before `EXECUTION_STARTED`.
-- Update `AUDIT_MODULE_PLAN.md`: decision 9 (template approval), §12.2 #1 (one app + one DB, confirmed) and #3 (Gate 1 rejection closes), Appendix A.
-- Connect `AuditService` to Standardization, Ingress and the Workflow Engine, and switch the audit routes to `src/security`.
+Everything you need from Audit is **already in `develop`**. Use it; don't change it.
+
+- Every event in §6 exists in `backend/src/audit/catalogue.py`, including `TEMPLATE_APPROVED` (`self_approved`), `TEMPLATE_REJECTED`, `TEMPLATE_UPDATED`, `TEMPLATE_ACTIVATED`, `EXECUTION_CANCELLED`, final status `CANCELLED`, and `based_on_version` on `TEMPLATE_CREATED`.
+- `ProvenanceSealer` is in `backend/src/audit/port.py`.
+- `docs/audit/AUDIT_MODULE_PLAN.md` (v1.4) and `docs/audit/README.md` match the decisions in §4.
+- Audit does **not** check that a run's template was approved (D2 lets a request-drafted template run once). Don't add that check.
+
+**Do not edit anything in `backend/src/audit/` or `docs/audit/`.** If you think Audit needs a change (a missing event, a required key that doesn't fit), ask Ain. Ain also connects the dashboard's Audit page and the Standardization module to Audit; that is not part of your prompts.
 
 ---
 
-## 11. Report notes
+## 11. Report notes (for the team's FYP report, not code)
 
 - **Architecture:** "CASE is one FastAPI application with one PostgreSQL database. Modules communicate through Python interfaces, and every module records its actions in one tamper-evident audit trail."
 - **Limitation (D1, D3):** "A single user can complete a whole request. CASE relies on the audit trail to detect this rather than preventing it. Separation of duties is future work."
 - **Future work:** re-editing after Gate 1 rejection (D4), mandatory second-person template review.
+
+---
+
+## 12. Prompts for the AI assistant (one at a time)
+
+Paste these into the AI coding assistant **one at a time**, in order. After each one:
+
+1. Read what it says it changed.
+2. Run the tests from `backend/`: `python -m pytest -m "not integration"`.
+3. If they pass, commit (`git add <the files it changed>`, then `git commit`). If not, fix it before the next prompt.
+
+Prompts 2 and 14 stop before making changes that are hard to undo, so you can check first.
+
+1. *"Read docs/workflow/UNIFICATION_PLAN.md, docs/audit/README.md (sections 3–7), backend/src/audit/port.py, catalogue.py, errors.py and backend/server.py. Summarise what you will build and list any questions. Don't edit anything yet."*
+
+2. *"Do §9 step 1, migrations only: write backend/migrations/004_workflow_tables.sql and 005_workflow_instances.sql as described in S1 and S2 (not copied from template-module), with GRANTs for case_app. Stop and show me the SQL before running anything."*
+
+3. *"Do the rest of §9 step 1: in server.py build Database + AuditService once at startup and pass the same AuditService wherever an AuditLogger or ProvenanceSealer is needed. Remove the demo graph, MemorySaver, IntentAnalysis and the /api/jobs routes. Run `python -m pytest -m \"not integration\"` and report the result."*
+
+4. *"S1 part 1: create src/workflow/schemas.py (Pydantic, camelCase aliases matching dashboard/src/api/types.ts), rules.py (business rules from businessRules.ts, without the `approval` step type) and the template_hash function from S1. Add unit tests in backend/tests/workflow/. Run the tests."*
+
+5. *"S1 part 2: create src/workflow/template_repo.py and template_service.py: create, update draft, approve (with self_approved), reject, activate, deactivate, and create new version. Log the audit events from §6 with pattern A (log_event with session=tx as the last step). Leave AI generation for later. Tests use MemoryAuditLogger to check which events were logged. Run the tests."*
+
+6. *"S1 part 3: create src/workflow/routes.py for every /api/templates route in S1, with the error envelope from §3 rule 4 and a get_current_user dependency that reads the x-operator-id header (§7). Include the router in server.py. Run the tests."*
+
+7. *"S2 part 1: create src/workflow/engine.py: a LangGraph graph with fixed gate_1 and gate_2 nodes around the template's steps, as in the S2 diagram, using AsyncPostgresSaver. No document generation yet. Add tests for approving and rejecting at each gate. Run the tests."*
+
+8. *"S2 part 2: create instance_repo.py, instance_service.py and the /api/instances routes for list, get, start, respond and cancel. Use pattern B for gate decisions and cancel. At the end of every request log EXECUTION_CLOSED with the right final_status, then call sealer.seal_provenance. Run the tests."*
+
+9. *"S4: implement the document step using backend/src/document_generators (keep its path-safety rule). Log DOCUMENT_GENERATED with document_hash, and add the document download route. Run the tests."*
+
+10. *"S2 part 3: implement the intake step and POST /api/instances/{id}/intake, porting template-module/server/src/ai/fileReader.ts to src/ai_intent/file_reader.py with pypdf and pytesseract. Log ATTACHMENT_EXTRACTED with file hashes, never file names. Add the new packages to requirements.txt. Run the tests."*
+
+11. *"S3 part 1: create src/ai_intent/drafter.py (port of generator.ts, without the `approval` step type in the prompt) and connect it to POST /api/templates/generate. Log AI_TEMPLATE_DRAFTED with prompt_hash, never the prompt. Mock Ollama in tests. Run the tests."*
+
+12. *"S3 part 2: create src/ai_intent/matcher.py (match_template) and start_request as described in S3. Add tests for a match, for NO_MATCH, and for a request-drafted template that runs once under Gate 1 and stays PENDING (D2). Run the tests."*
+
+13. *"Do §9 step 5: run one request end to end and check that its provenance verifies with verify_lineage. Report what passed and what didn't."*
+
+14. *"Do §9 step 6 only after I confirm: list what deleting template-module/ will remove, then wait. After I confirm, delete it and update the root README."*
