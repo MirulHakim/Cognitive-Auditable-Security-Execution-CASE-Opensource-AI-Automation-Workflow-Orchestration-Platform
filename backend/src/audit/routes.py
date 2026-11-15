@@ -87,14 +87,19 @@ def get_service(request: Request) -> AuditService:
 async def audit_lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup: Postgres if DATABASE_URL is set (the real thing), otherwise in-memory (demo only).
 
+    The one shared Database is also put on app.state.database (None in memory mode), so other
+    modules (e.g. the Workflow Engine) use the same pool instead of opening a second one.
+
     Windows note: psycopg's async mode needs a SelectorEventLoop; in Docker/Linux it just works."""
     if os.environ.get("DATABASE_URL"):
         from ..storage.database import Database  # only needed with a database
         async with Database() as database:
+            app.state.database = database
             configure_audit(app, AuditService(PostgresAuditRepository(database)))
             yield
     else:
         logger.warning("DATABASE_URL is not set: the audit API uses in-memory storage (lost on restart)")
+        app.state.database = None
         configure_audit(app, AuditService(InMemoryAuditRepository()))
         yield
 
