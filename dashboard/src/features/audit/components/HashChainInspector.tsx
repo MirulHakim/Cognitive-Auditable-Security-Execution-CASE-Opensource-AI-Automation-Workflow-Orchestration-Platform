@@ -28,18 +28,15 @@ interface HashChainInspectorProps {
     prevHash: string;
     hash: string;
   } | null;
+  /** Real chain verification (re-computes every link server-side). */
+  onVerify?: () => Promise<{ verified: boolean; message: string }>;
 }
 
 export const HashChainInspector: React.FC<HashChainInspectorProps> = ({
   currentRecord,
-  previousRecord = {
-    sequence: 37,
-    action: "AI_TEMPLATE_SELECTED",
-    prevHash:
-      "662c0ab7ada149bbf7684dc31eccc9af935e284385449ae3395b40d20d54eb28",
-    hash: "d53039a945e2526135d96fdc092ccbd77727a80ee103d70646f1351e39f0c19b",
-  },
+  previousRecord,
   nextRecord = null,
+  onVerify,
 }) => {
   // Expansion toggles for progressive disclosure
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({
@@ -50,9 +47,10 @@ export const HashChainInspector: React.FC<HashChainInspectorProps> = ({
 
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
-  const [verificationResult, setVerificationResult] = useState<"match" | null>(
-    null,
-  );
+  const [verificationResult, setVerificationResult] = useState<
+    "match" | "mismatch" | null
+  >(null);
+  const [verificationMessage, setVerificationMessage] = useState("");
 
   const toggleExpand = (key: string) => {
     setExpandedCards((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -64,14 +62,22 @@ export const HashChainInspector: React.FC<HashChainInspectorProps> = ({
     setTimeout(() => setCopiedHash(null), 2000);
   };
 
-  const handleRecomputeHash = () => {
+  const handleRecomputeHash = async () => {
     setIsVerifying(true);
     setVerificationResult(null);
 
-    setTimeout(() => {
+    if (onVerify) {
+      const result = await onVerify();
+      setVerificationMessage(result.message);
+      setVerificationResult(result.verified ? "match" : "mismatch");
       setIsVerifying(false);
-      setVerificationResult("match");
-    }, 600);
+      return;
+    }
+
+    // No verifier supplied: nothing is claimed either way.
+    setVerificationMessage("No verifier is wired to this view.");
+    setVerificationResult("mismatch");
+    setIsVerifying(false);
   };
 
   const truncateHash = (h: string) => `${h.slice(0, 10)}...${h.slice(-8)}`;
@@ -311,11 +317,6 @@ export const HashChainInspector: React.FC<HashChainInspectorProps> = ({
           details, prev_hash)
         </p>
 
-        {/* // TODO[BACKEND]: "Recompute this hash now" must trigger a real
-            SHA-256 computation over the current record's payload
-            (seq, ts, actor, role, action, target, source, outcome, details,
-            prev_hash) — e.g. POST /api/audit/verify/:id — and compare the
-            freshly computed digest against the stored prev_hash to detect tampering, instead of the mocked in-memory match/fail result. */}
         <button
           type="button"
           onClick={handleRecomputeHash}
@@ -330,15 +331,24 @@ export const HashChainInspector: React.FC<HashChainInspectorProps> = ({
           </span>
         </button>
 
-        {/* Verified Match Green Box */}
-        {verificationResult === "match" && (
-          <div className="p-3 rounded-lg bg-success/10 border border-success/40 text-success text-xs font-mono animate-in fade-in duration-200">
+        {verificationResult !== null && (
+          <div
+            className={`p-3 rounded-lg border text-xs font-mono animate-in fade-in duration-200 ${
+              verificationResult === "match"
+                ? "bg-success/10 border-success/40 text-success"
+                : "bg-danger/10 border-danger/40 text-danger"
+            }`}
+          >
             <div className="flex items-center gap-1.5 font-bold">
-              <FiCheckCircle className="w-4 h-4 text-success" />
-              <span>Match. The record is unchanged.</span>
+              {verificationResult === "match" ? (
+                <FiCheckCircle className="w-4 h-4" />
+              ) : (
+                <FiRefreshCw className="w-4 h-4" />
+              )}
+              <span>{verificationMessage}</span>
             </div>
-            <div className="text-[10px] text-success/80 mt-1 break-all select-all">
-              computed {currentRecord.hash}
+            <div className="text-[10px] opacity-80 mt-1 break-all select-all">
+              stored {currentRecord.hash}
             </div>
           </div>
         )}

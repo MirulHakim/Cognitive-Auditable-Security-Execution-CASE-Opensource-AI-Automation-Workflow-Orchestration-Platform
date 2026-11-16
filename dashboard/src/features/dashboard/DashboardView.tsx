@@ -1,158 +1,142 @@
-import React, { useState } from "react";
+import React, { useMemo } from "react";
 import { MetricCard } from "./components/MetricCard";
-import WorkflowTable, {
-  type WorkflowItem,
-} from "../workflows/components/list/WorkflowTable";
-import EmployeeList from "../employees/components/EmployeeList";
+import WorkflowTable from "../workflows/components/list/WorkflowTable";
+import EmployeeList, { type Employee } from "../employees/components/EmployeeList";
+import { useWorkflowData } from "../workflows/useWorkflowData";
+import { initials, uiRole } from "../../lib/format";
 import {
   FiPlayCircle,
   FiCheckCircle,
   FiAlertTriangle,
   FiZap,
+  FiClock,
 } from "react-icons/fi";
 
 interface DashboardViewProps {
   onNavigateToWorkflows: () => void;
   onNavigateToEmployees: () => void;
+  onNavigateToRuns: () => void;
+  onOpenWorkflow: (id: string) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigateToWorkflows,
   onNavigateToEmployees,
+  onNavigateToRuns,
+  onOpenWorkflow,
 }) => {
-  // UI-REGION: Dashboard Overview — KPI metric tiles, active workflows
-  // table, and team roster.
-  // TODO[BACKEND]: Replace this hard-coded workflows array with a fetch from
-  // GET /api/workflows in a useEffect, and replace the literal metric values
-  // rendered below ("1,248", "99.4%", "3") with a GET
-  // /api/dashboard/metrics response.
-  const [workflows, setWorkflows] = useState<WorkflowItem[]>([
-    {
-      id: "wf-1",
-      name: "Urgent Support Triage",
-      description: "Classifies high priority emails and creates Jira tickets.",
-      status: "active",
-      lastRun: "10 mins ago",
-      createdAt: "2026-09-20T10:00:00Z",
-      triggerType: "Email Webhook",
-    },
-    {
-      id: "wf-2",
-      name: "Daily Standup Slack Bot",
-      description: "Pings engineering channels every weekday at 9:30 AM.",
-      status: "inactive",
-      lastRun: "Yesterday",
-      createdAt: "2026-09-15T08:30:00Z",
-      triggerType: "Cron Schedule",
-    },
-    {
-      id: "wf-3",
-      name: "Customer Onboarding Agent",
-      description:
-        "Sends welcome sequence and provisions new database records.",
-      status: "active",
-      lastRun: "2 hours ago",
-      createdAt: "2026-09-24T14:15:00Z",
-      triggerType: "Stripe Webhook",
-    },
-  ]);
+  const data = useWorkflowData();
+  const { templates, instances, members, rows } = data;
 
-  // Toggle active/inactive
-  const handleToggleStatus = (id: string) => {
-    setWorkflows((prev) =>
-      prev.map((wf) =>
-        wf.id === id
-          ? { ...wf, status: wf.status === "active" ? "inactive" : "active" }
-          : wf,
-      ),
-    );
-  };
-
-  // Duplicate workflow
-  const handleDuplicate = (workflow: WorkflowItem) => {
-    const duplicated: WorkflowItem = {
-      ...workflow,
-      id: `wf-${Date.now()}`,
-      name: `${workflow.name} (Copy)`,
-      createdAt: new Date().toISOString(),
-      status: "inactive",
+  const metrics = useMemo(() => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    return {
+      activeWorkflows: templates.filter((template) => template.isActive).length,
+      runsToday: instances.filter(
+        (instance) => new Date(instance.createdAt) >= startOfToday,
+      ).length,
+      paused: instances.filter((instance) => instance.status === "PAUSED").length,
+      rejected: instances.filter((instance) => instance.status === "REJECTED").length,
     };
-    setWorkflows((prev) => [duplicated, ...prev]);
-  };
+  }, [templates, instances]);
 
-  // Export as JSON file
-  const handleExportJson = (workflow: WorkflowItem) => {
-    const dataStr =
-      "data:text/json;charset=utf-8," +
-      encodeURIComponent(JSON.stringify(workflow, null, 2));
-    const downloadAnchor = document.createElement("a");
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute(
-      "download",
-      `${workflow.name.toLowerCase().replace(/\s+/g, "_")}.json`,
-    );
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-  };
+  const employees = useMemo<Employee[]>(
+    () =>
+      members.map((member) => ({
+        id: member.id,
+        name: member.displayName,
+        email: member.email,
+        role: uiRole(member.role),
+        avatarInitials: initials(member.displayName),
+        joinedDate: "—",
+        status: member.revokedAt === null ? "active" : "revoked",
+      })),
+    [members],
+  );
 
-  // Delete workflow
-  const handleDelete = (id: string) => {
-    setWorkflows((prev) => prev.filter((wf) => wf.id !== id));
+  const openRow = (id: string) => {
+    const template = templates.find((entry) => entry.templateId === id);
+    if (!template) return;
+    if (!data.byId(id)) return;
+    onOpenWorkflow(id);
   };
 
   return (
     <div className="p-6 space-y-6">
-      {/* Page Title */}
-      <div>
-        <h1 className="text-xl font-semibold text-primary">Dashboard Overview</h1>
-        <p className="text-sm text-muted">
-          System throughput and live agent metrics
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-primary">Dashboard Overview</h1>
+          <p className="text-sm text-muted">
+            Live template, execution and team state from the CASE engine
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onNavigateToRuns}
+          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold text-xs transition-colors shadow-sm shadow-accent-primary/40"
+        >
+          <FiPlayCircle className="w-4 h-4" />
+          Open runs
+        </button>
       </div>
 
-      {/* Top Metrics Cards */}
+      {data.error && (
+        <div className="rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-xs text-danger">
+          {data.error}
+        </div>
+      )}
+      {data.notice && (
+        <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-xs text-success">
+          {data.notice}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <MetricCard label="Active workflows" value={metrics.activeWorkflows} icon={FiZap} />
+        <MetricCard label="Runs started today" value={metrics.runsToday} icon={FiPlayCircle} />
         <MetricCard
-          label="Active Workflows"
-          value={workflows.filter((w) => w.status === "active").length}
-          icon={FiZap}
+          label="Awaiting approval"
+          value={metrics.paused}
+          change={metrics.paused > 0 ? "Needs a decision" : undefined}
+          icon={FiClock}
         />
         <MetricCard
-          label="Total Runs Today"
-          value="1,248"
-          change="+12% from yesterday"
-          icon={FiPlayCircle}
-        />
-        <MetricCard
-          label="Success Rate"
-          value="99.4%"
-          change="+0.2%"
-          icon={FiCheckCircle}
-        />
-        <MetricCard
-          label="Failed Executions"
-          value="3"
-          icon={FiAlertTriangle}
+          label="Rejected runs"
+          value={metrics.rejected}
+          icon={metrics.rejected > 0 ? FiAlertTriangle : FiCheckCircle}
         />
       </div>
 
-      {/* Workflow Management Table */}
       <WorkflowTable
-        workflows={workflows}
-        onToggleStatus={handleToggleStatus}
-        onDuplicate={handleDuplicate}
-        onExportJson={handleExportJson}
-        onDelete={handleDelete}
+        workflows={rows}
+        onToggleStatus={(id) => {
+          const template = data.byId(id);
+          if (template) void data.toggleActive(template);
+        }}
+        onDuplicate={(row) => {
+          const template = data.byId(row.id);
+          if (template) void data.duplicate(template);
+        }}
+        onExportJson={(row) => {
+          const template = data.byId(row.id);
+          if (template) data.exportJson(template);
+        }}
+        onDelete={(id) => {
+          const template = data.byId(id);
+          if (template) void data.remove(template);
+        }}
+        onRename={(id, name) => {
+          const template = data.byId(id);
+          if (template) void data.rename(template, name);
+        }}
         onNavigateToWorkflows={onNavigateToWorkflows}
+        onSelectWorkflow={openRow}
       />
 
-      {/* Employee / Team Access Table */}
       <EmployeeList
+        employees={employees}
         onNavigateToEmployees={onNavigateToEmployees}
-        onEditRole={(emp) => console.log("Edit role for:", emp.name)}
-        onResetPassword={(emp) => console.log("Reset password for:", emp.email)}
-        onRemoveEmployee={(id) => console.log("Remove employee:", id)}
       />
     </div>
   );

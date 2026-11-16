@@ -7,6 +7,7 @@ Location: src/standardization/adapters/gmail.py
 One parser, two outputs:
   - to_message(): an incoming Gmail request  -> StandardMessage   (standardization 1)
   - to_record():  an email read from the EMAIL_SERVICE resource -> StandardRecord (standardization 2)
+                  Reserved for future resources; not used in the MVP.
 
 Accepts Gmail API messages in either format:
   - format='raw'  (recommended): {"id": ..., "raw": "<base64url RFC 822>", "internalDate": "..."}
@@ -175,7 +176,10 @@ def to_message(msg: dict[str, Any], *, workspace_id: str, verified: bool,
 
 
 def to_record(msg: dict[str, Any]) -> StandardRecord:
-    """Email read from the EMAIL_SERVICE resource -> StandardRecord (use with EMAIL_FIELD_TYPES)."""
+    """Email read from the EMAIL_SERVICE resource -> StandardRecord (use with EMAIL_FIELD_TYPES).
+
+    Reserved for future resources; not used in the MVP.
+    """
     p = parse_gmail(msg, max_body_chars=EMAIL_RECORD_BODY_CHARS)
     return StandardRecord(
         record_id=p.gmail_id, record_type="email", occurred_at=p.date,

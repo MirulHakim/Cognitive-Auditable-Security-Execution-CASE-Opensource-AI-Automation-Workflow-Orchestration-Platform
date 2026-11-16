@@ -6,20 +6,21 @@ Location: src/standardization/service.py
 
 The only two functions other modules should call. They dispatch to the right
 adapter (Step 3), then emit exactly one audit event (see §8 of the spec) on
-success or failure.
+success or failure. Both are async because the audit port is async (§7.1).
 
 No AI in this module. Everything here is deterministic Python.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal, Optional, Union
 
 from pydantic import ValidationError
 
 from .adapters import gmail, json_file, rest_api, telegram, web_form
 from .adapters.base import FieldMapping, ResourceInfo, StandardizationError, build_record_set
-from .audit_port import AuditLogger, NullAuditLogger
+from src.audit.port import AuditLogger, NullAuditLogger
 from .schemas import SCHEMA_VERSION, ResourceType, StandardMessage, StandardRecord, StandardRecordSet
 from .utils import sha256_hex
 
@@ -34,8 +35,16 @@ _ADAPTER_NAME = {
     "EMAIL_SERVICE": "gmail_adapter v1",
 }
 
-_ACTOR = "CASE System"
+_ACTOR = "system"
 _ROLE = "SYSTEM"
+
+# Sources the Audit module accepts from this module. Anything else (an
+# unsupported channel or resource type) is recorded as SYSTEM, with the
+# name in details["channel"].
+_AUDIT_SOURCES = frozenset({"GMAIL", "TELEGRAM", "WEB_FORM", *(rt.value for rt in ResourceType)})
+
+_FIELD_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
+_MAX_ERROR_FIELDS = 20
 
 
 def _message_content_hash(msg: StandardMessage) -> str:
@@ -55,18 +64,51 @@ def _record_set_content_hash(rs: StandardRecordSet) -> str:
     return sha256_hex(rs.model_dump(mode="json", exclude={"record_set_id", "fetched_at"}))
 
 
-def _audit_failure(audit: AuditLogger, *, workspace_id: str, execution_id: Optional[str],
-                   target: str, stage: Literal["message", "resource"], exc: StandardizationError) -> None:
-    audit.log_event(
+def _message_target(execution_id: Optional[str], workspace_id: str) -> str:
+    # Never the source message id: a Gmail Message-ID looks like an email address (rule 5).
+    return f"execution:{execution_id}" if execution_id else f"workspace:{workspace_id}"
+
+
+def _resource_target(execution_id: Optional[str], resource: ResourceInfo) -> str:
+    return f"execution:{execution_id}" if execution_id else f"resource:{resource.resource_id}"
+
+
+def _error_fields(cause: Optional[BaseException]) -> list[str]:
+    """Names of the fields that failed validation, never their values.
+
+    Error messages are not recorded: they can echo input (e.g. an invalid
+    email address). Only a pydantic ValidationError has field names; any
+    other cause gives an empty list and the error `code` says what kind of
+    failure it was. Name parts that are not identifier-like (list indexes,
+    dict keys taken from the payload) are dropped.
+    """
+    if not isinstance(cause, ValidationError):
+        return []
+    fields: list[str] = []
+    for err in cause.errors():
+        name = ".".join(part for part in err["loc"] if isinstance(part, str) and _FIELD_NAME.fullmatch(part))
+        if name and name not in fields:
+            fields.append(name)
+    return fields[:_MAX_ERROR_FIELDS]
+
+
+async def _audit_failure(audit: AuditLogger, *, workspace_id: str, execution_id: Optional[str],
+                         target: str, stage: Literal["message", "resource"], exc: StandardizationError,
+                         cause: Optional[BaseException]) -> None:
+    source = exc.source if exc.source in _AUDIT_SOURCES else "SYSTEM"
+    details: dict[str, Any] = {"stage": stage, "source": source, "code": exc.code, "error_fields": _error_fields(cause)}
+    if source != exc.source and exc.source:
+        details["channel"] = exc.source[:64]
+    await audit.log_event(
         workspace_id=workspace_id, actor=_ACTOR, role=_ROLE,
         action="STANDARDIZATION_FAILED",
-        target=target, source=exc.source, outcome="FAILURE",
-        details={"stage": stage, "source": exc.source, "code": exc.code, "reason": str(exc)[:300]},
-        execution_id=execution_id,
+        target=target, source=source, outcome="FAILURE",
+        details=details,
+        execution_id=execution_id or None,
     )
 
 
-def standardize_message(
+async def standardize_message(
     channel: Literal["GMAIL", "TELEGRAM", "WEB_FORM"],
     raw: dict,
     *,
@@ -100,19 +142,21 @@ def standardize_message(
         else:
             raise StandardizationError(f"unsupported channel: {channel}", code="UNSUPPORTED_INPUT", source=str(channel))
     except StandardizationError as exc:
-        _audit_failure(log, workspace_id=workspace_id, execution_id=execution_id,
-                       target=execution_id or "unknown", stage="message", exc=exc)
+        await _audit_failure(log, workspace_id=workspace_id, execution_id=execution_id,
+                             target=_message_target(execution_id, workspace_id), stage="message", exc=exc,
+                             cause=exc.__cause__)
         raise
     except ValidationError as exc:
         wrapped = StandardizationError(f"{channel} message failed validation: {exc.errors()[0]['msg']}", source=channel)
-        _audit_failure(log, workspace_id=workspace_id, execution_id=execution_id,
-                       target=execution_id or "unknown", stage="message", exc=wrapped)
+        await _audit_failure(log, workspace_id=workspace_id, execution_id=execution_id,
+                             target=_message_target(execution_id, workspace_id), stage="message", exc=wrapped,
+                             cause=exc)
         raise wrapped from exc
 
-    log.log_event(
+    await log.log_event(
         workspace_id=workspace_id, actor=_ACTOR, role=_ROLE,
         action="MESSAGE_STANDARDIZED",
-        target=execution_id or msg.source_message_id, source=channel, outcome="SUCCESS",
+        target=_message_target(execution_id, workspace_id), source=channel, outcome="SUCCESS",
         details={
             "adapter": _ADAPTER_NAME[channel],
             "schema": f"StandardMessage {SCHEMA_VERSION}",
@@ -121,7 +165,7 @@ def standardize_message(
             "body_truncated": msg.body_truncated,
             "attachment_count": len(msg.attachments),
         },
-        execution_id=execution_id,
+        execution_id=execution_id or None,
     )
     return msg
 
@@ -152,7 +196,7 @@ def _standardize_email_service(raw: Any, *, resource: ResourceInfo, workspace_id
     )
 
 
-def standardize_resource(
+async def standardize_resource(
     resource: ResourceInfo,
     raw: Any,
     *,
@@ -162,6 +206,8 @@ def standardize_resource(
     audit: Optional[AuditLogger] = None,
 ) -> StandardRecordSet:
     """Convert data fetched from a resource into a StandardRecordSet.
+
+    Reserved for future resources; not used in the MVP.
 
     `raw` is: REST_API -> parsed JSON, JSON_FILE -> bytes/str/JSON,
     EMAIL_SERVICE -> list of Gmail API messages.
@@ -192,19 +238,21 @@ def standardize_resource(
             raise StandardizationError(f"unsupported resource type: {resource.resource_type}",
                                        code="UNSUPPORTED_INPUT", source=source)
     except StandardizationError as exc:
-        _audit_failure(log, workspace_id=workspace_id, execution_id=execution_id,
-                       target=execution_id or resource.resource_name, stage="resource", exc=exc)
+        await _audit_failure(log, workspace_id=workspace_id, execution_id=execution_id,
+                             target=_resource_target(execution_id, resource), stage="resource", exc=exc,
+                             cause=exc.__cause__)
         raise
     except ValidationError as exc:
         wrapped = StandardizationError(f"{source} data failed validation: {exc.errors()[0]['msg']}", source=source)
-        _audit_failure(log, workspace_id=workspace_id, execution_id=execution_id,
-                       target=execution_id or resource.resource_name, stage="resource", exc=wrapped)
+        await _audit_failure(log, workspace_id=workspace_id, execution_id=execution_id,
+                             target=_resource_target(execution_id, resource), stage="resource", exc=wrapped,
+                             cause=exc)
         raise wrapped from exc
 
-    log.log_event(
+    await log.log_event(
         workspace_id=workspace_id, actor=_ACTOR, role=_ROLE,
         action="DATA_STANDARDIZED",
-        target=execution_id or resource.resource_name, source=source, outcome="SUCCESS",
+        target=_resource_target(execution_id, resource), source=source, outcome="SUCCESS",
         details={
             "adapter": _ADAPTER_NAME[source],
             "schema": f"StandardRecordSet {SCHEMA_VERSION}",
@@ -216,7 +264,7 @@ def standardize_resource(
             "input_hash": record_set.raw_hash,
             "output_hash": _record_set_content_hash(record_set),
         },
-        execution_id=execution_id,
+        execution_id=execution_id or None,
     )
     return record_set
 

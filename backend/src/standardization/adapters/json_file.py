@@ -2,6 +2,8 @@
 CASE — Data Standardization & Normalization Layer
 JSON file adapter (Step 3)
 
+Reserved for future resources; not used in the MVP.
+
 Location: src/standardization/adapters/json_file.py
 
 Input: the content of a JSON_FILE resource (bytes, text, or already-parsed JSON).

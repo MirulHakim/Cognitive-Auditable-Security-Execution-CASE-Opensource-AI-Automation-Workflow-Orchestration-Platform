@@ -2,6 +2,8 @@
 CASE — Data Standardization & Normalization Layer
 REST API adapter (Step 3)
 
+Reserved for future resources; not used in the MVP.
+
 Location: src/standardization/adapters/rest_api.py
 
 Input: the parsed JSON body the Secure API received from a REST_API resource,

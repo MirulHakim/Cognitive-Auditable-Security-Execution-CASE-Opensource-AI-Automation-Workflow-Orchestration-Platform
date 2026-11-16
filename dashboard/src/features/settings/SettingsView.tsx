@@ -181,6 +181,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </p>
       </div>
 
+      <div className="rounded-xl border border-info/30 bg-info/10 px-4 py-3 text-xs text-info leading-relaxed">
+        <span className="font-semibold">Identity is managed by the workspace directory.</span>{" "}
+        Your name, email and role come from the member an admin whitelisted; theme
+        and sign-out apply immediately. Profile edits, password changes and the
+        local-model panel below are not persisted yet.
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {/* Left Column: Account, preferences & AI engine */}
         <div className="md:col-span-2 xl:col-span-2 space-y-6">
