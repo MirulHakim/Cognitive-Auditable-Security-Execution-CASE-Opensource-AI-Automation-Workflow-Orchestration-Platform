@@ -1,4 +1,3 @@
-```markdown
 # 🚀 CASE — Cognitive Auditable Security Execution Platform
 
 > An open-source, Human-in-the-Loop (HITL) AI automation and workflow orchestration platform built with **FastAPI**, **LangGraph**, **Ollama (`qwen3.5:9b`)**, and **Tailscale**.
@@ -108,6 +107,8 @@ ollama pull qwen3.5:9b
 
 ## 🚀 Quick Start
 
+> **Running the full current stack** (PostgreSQL + Express workflow API + auth gateway + React dashboard)? Use the copy-paste [RUNBOOK.md](RUNBOOK.md). The instructions below cover the optional Python/FastAPI side.
+
 ### 1. Clone Repository & Setup Backend
 
 ```powershell
@@ -199,6 +200,7 @@ Tests marked `integration` need the database from step 2. They create their own 
 |---|---|---|
 | Audit & Transparency Layer | Ain | [docs/audit/README.md](docs/audit/README.md): how to record events from your module, logging patterns, database protection, status per phase |
 | Standardization | Ain | [docs/standardization/STANDARDIZATION_MODULE_SPEC.md](docs/standardization/STANDARDIZATION_MODULE_SPEC.md) |
+| Authentication Gateway | Platform | [docs/auth/README.md](docs/auth/README.md): Google OAuth2, JWT sessions, invitations, legacy header bridge, audit events |
 
 **Recording audit events from another module:** take an `AuditLogger` (from `src.audit.port`) as a parameter and call `await audit.log_event(...)`. Never put message bodies, prompts, tokens or email addresses in `details`. See the Audit README for the rules and for which logging pattern (A/B/C) to use.
 
@@ -294,5 +296,3 @@ def generate_file_safely(data) -> str:
 ### `Psycopg cannot use the 'ProactorEventLoop' to run in async mode`
 
 * On Windows, psycopg's async mode needs a `SelectorEventLoop` instead of the default `ProactorEventLoop`. The tests already use one (`tests/audit/integration/conftest.py`). Starting the app itself with the database on Windows is set up when the modules are connected (Audit Phase 6). On Linux/Docker this does not apply.
-
-```

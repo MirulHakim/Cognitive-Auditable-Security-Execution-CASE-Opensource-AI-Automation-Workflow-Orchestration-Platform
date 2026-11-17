@@ -17,17 +17,138 @@ export type Role = "admin" | "operator" | "auditor";
 /** The UI groups roles into three labels; staff == operator. */
 export type UiRole = "admin" | "staff" | "auditor";
 
+/**
+ * Directory lifecycle. `pending` is an invitation that has not been accepted
+ * yet; `revoked` is kept for history and filtered out of the roster.
+ */
+export type MemberStatus = "active" | "pending" | "revoked";
+
 export interface Member {
   id: string;
   displayName: string;
   email: string;
   role: Role;
   revokedAt: string | null;
+  /** Added by the gateway's merged directory response. */
+  status?: MemberStatus;
+  isPending?: boolean;
+  invitationId?: string;
+  invitedBy?: string | null;
+  invitedAt?: string;
+  expiresAt?: string;
+}
+
+/** A row from the gateway's `auth_invitations` table. */
+export interface Invitation {
+  invitationId: string;
+  email: string;
+  role: Exclude<Role, "admin">;
+  invitedBy: string | null;
+  createdAt: string;
+  expiresAt: string;
+  consumedAt: string | null;
+  acceptedOperatorId: string | null;
+  revokedAt: string | null;
+  status: "PENDING" | "ACCEPTED" | "EXPIRED" | "REVOKED";
+}
+
+/** Admin withdrawal result: the invitation stays on record as REVOKED. */
+export interface WithdrawInvitationResult {
+  withdrawn: true;
+  invitation: Invitation;
+}
+
+/** `POST /api/invitations` — SMTP is the only transport; DEV_LOG is local. */
+export interface InviteMemberResult {
+  invitation: Invitation;
+  delivery: "SENT" | "FAILED";
+  channel: "SMTP" | "DEV_LOG";
 }
 
 export interface Me {
   operator: Member;
   permissions: string[];
+}
+
+/** Persisted per account; null means the member never chose a theme. */
+export type ThemePreference = "light" | "dark" | "system";
+
+/** `GET/PATCH /api/users/me` — the gateway's editable profile. */
+export interface Profile {
+  id: string;
+  displayName: string;
+  email: string;
+  role: Role;
+  contactNumber: string | null;
+  themePreference: ThemePreference | null;
+}
+
+export interface ProfileResult {
+  profile: Profile;
+}
+
+export interface ThemePreferenceResult {
+  themePreference: ThemePreference;
+  /** False when the member has no Google link yet; the browser cache still applies. */
+  persisted: boolean;
+}
+
+/**
+ * Live presence, derived from `auth_accounts.last_seen_at` by the gateway.
+ * `online` is the field a status dot should use; it is recalculated on every
+ * read, so a closed laptop turns offline without any explicit event.
+ */
+export interface PresenceMember {
+  operatorId: string;
+  displayName: string;
+  role: Role;
+  online: boolean;
+  lastSeenAt: string | null;
+  lastSeenSecondsAgo: number | null;
+  isOnline: boolean;
+}
+
+export interface PresenceSnapshot {
+  generatedAt: string;
+  offlineAfterSeconds: number;
+  heartbeatEverySeconds: number;
+  members: PresenceMember[];
+}
+
+/** "Personal Integrations" vault. Status only — the server never sends the secret. */
+export type VaultProvider = "telegram" | "gmail";
+
+export type VaultStatus = Record<VaultProvider, boolean>;
+
+export interface VaultConnectResult {
+  provider: VaultProvider;
+  connected: true;
+  updatedAt: string;
+}
+
+export interface VaultDisconnectResult {
+  provider: VaultProvider;
+  connected: false;
+  /** False when there was nothing connected (idempotent disconnect). */
+  deleted: boolean;
+}
+
+export interface HeartbeatResult {
+  online: boolean;
+  lastSeenAt: string;
+  heartbeatEverySeconds: number;
+  offlineAfterSeconds: number;
+}
+
+/** Result of the gateway's hard delete: the account is gone, not disabled. */
+export interface HardRevokeResult {
+  revoked: true;
+  operatorId: string;
+  deleted: {
+    accounts: number;
+    refreshTokens: number;
+    invitationsUnlinked: number;
+  };
 }
 
 export interface WorkflowStep {

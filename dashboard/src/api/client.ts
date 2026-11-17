@@ -4,10 +4,22 @@ import type {
   AuditPage,
   AuditOutcome,
   AuditVerification,
+  HardRevokeResult,
+  HeartbeatResult,
   InstanceDetail,
+  InviteMemberResult,
   Me,
   Member,
+  PresenceSnapshot,
+  ProfileResult,
   Template,
+  ThemePreference,
+  ThemePreferenceResult,
+  VaultConnectResult,
+  VaultDisconnectResult,
+  VaultProvider,
+  VaultStatus,
+  WithdrawInvitationResult,
   WorkflowInstance,
 } from "./types";
 
@@ -38,6 +50,44 @@ export function clearIdentity(): void {
   localStorage.removeItem(IDENTITY_KEY);
 }
 
+/**
+ * Google sign-in is a full-page navigation: the gateway sets HttpOnly cookies
+ * and redirects back to the dashboard. No token ever reaches JavaScript.
+ */
+export function startGoogleSignIn(): void {
+  window.location.assign(`${BASE}/api/auth/google/start`);
+}
+
+let refreshInFlight: Promise<boolean> | null = null;
+
+/**
+ * Exchanges the rotating refresh cookie for a fresh access cookie. Concurrent
+ * 401s share one request so they cannot rotate the token twice (which the
+ * gateway treats as replay and would reject).
+ */
+export function refreshSession(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = fetch(`${BASE}/api/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+    })
+      .then((response) => response.ok)
+      .catch(() => false)
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+}
+
+/** Revokes the refresh token server-side; JWT cookies are cleared by the response. */
+export async function signOutSession(): Promise<void> {
+  await fetch(`${BASE}/api/auth/logout`, {
+    method: "POST",
+    credentials: "include",
+  }).catch(() => undefined);
+}
+
 /** Error carrying the server's structured payload so the UI can render it. */
 export class ApiError extends Error {
   readonly status: number;
@@ -60,15 +110,40 @@ export function errorMessage(error: unknown): string {
   return "Something went wrong.";
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function request<T>(
+  path: string,
+  init: RequestInit = {},
+  allowRefresh = true,
+): Promise<T> {
   const identity = getIdentity();
   const headers: Record<string, string> = {
     "content-type": "application/json",
     ...((init.headers as Record<string, string> | undefined) ?? {}),
   };
+  // Kept for the dev-only identity switch. The gateway strips this header and
+  // replaces it with the identity from the verified JWT session.
   if (identity) headers["x-operator-id"] = identity;
 
-  const response = await fetch(`${BASE}${path}`, { ...init, headers });
+  const response = await fetch(`${BASE}${path}`, {
+    ...init,
+    headers,
+    credentials: "include",
+  });
+
+  // An expired access cookie is a normal condition: refresh once and replay the
+  // same request. Auth endpoints opt out to avoid recursion.
+  // Only the sign-in lifecycle opts out. Vault and presence live under
+  // /api/auth too, and they must still recover from an expired access cookie.
+  const isAuthLifecycle =
+    path.startsWith("/api/auth/refresh") ||
+    path.startsWith("/api/auth/google") ||
+    path.startsWith("/api/auth/logout");
+  if (response.status === 401 && allowRefresh && !isAuthLifecycle) {
+    if (await refreshSession()) {
+      return request<T>(path, init, false);
+    }
+  }
+
   const text = await response.text();
   const payload = text ? JSON.parse(text) : null;
 
@@ -90,22 +165,30 @@ export function getMe(): Promise<Me> {
   return request<Me>("/api/operators/me");
 }
 
+/**
+ * The gateway's merged directory: legacy members plus pending invitations.
+ * Pending rows are admin-only and carry `status: "pending"`.
+ */
 export async function listMembers(): Promise<Member[]> {
   const payload = await request<{ operators: Member[] }>("/api/operators");
   return payload.operators;
 }
 
-/** Admin only: whitelist an email. Re-inviting a revoked email restores it. */
-export async function addMember(body: {
+/**
+ * Admin only: create an invitation in the gateway and send the magic link from
+ * the CASE system mailbox. This replaces the legacy whitelist POST: the person
+ * is not a member until they accept and a real `operators` row is created.
+ *
+ * The gateway schema is strict — extra keys (for example displayName) are a 400.
+ */
+export function inviteMember(body: {
   email: string;
-  displayName?: string;
   role: "operator" | "auditor";
-}): Promise<Member> {
-  const payload = await request<{ operator: Member }>("/api/operators", {
+}): Promise<InviteMemberResult> {
+  return request<InviteMemberResult>("/api/invitations", {
     method: "POST",
     body: JSON.stringify(body),
   });
-  return payload.operator;
 }
 
 /** Admin only: remove access (soft delete; history is kept). */
@@ -115,6 +198,101 @@ export async function revokeMember(id: string): Promise<Member> {
     { method: "DELETE" },
   );
   return payload.operator;
+}
+
+/**
+ * Admin only: permanently deletes the member (operators row, Google link,
+ * refresh tokens). Active JWTs die on their next request; the person can only
+ * return through a brand-new invitation.
+ */
+export function deleteMember(id: string): Promise<HardRevokeResult> {
+  return request<HardRevokeResult>(
+    `/api/auth/operators/${encodeURIComponent(id)}`,
+    { method: "DELETE" },
+  );
+}
+
+/**
+ * Admin only: withdraw a pending invitation. The magic link stops working the
+ * moment this succeeds; the row is kept as REVOKED for the audit trail.
+ */
+export function withdrawInvitation(
+  invitationId: string,
+): Promise<WithdrawInvitationResult> {
+  return request<WithdrawInvitationResult>(
+    `/api/invitations/${encodeURIComponent(invitationId)}`,
+    { method: "DELETE" },
+  );
+}
+
+/* ---------------- profile ---------------- */
+
+export function getProfile(): Promise<ProfileResult> {
+  return request<ProfileResult>("/api/users/me");
+}
+
+/** Display name and contact number; the email stays Google-managed. */
+export function updateProfile(body: {
+  displayName?: string;
+  contactNumber?: string | null;
+}): Promise<ProfileResult> {
+  return request<ProfileResult>("/api/users/me", {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Account-scoped theme choice, applied on the next sign-in from any device. */
+export function saveThemePreference(
+  theme: ThemePreference,
+): Promise<ThemePreferenceResult> {
+  return request<ThemePreferenceResult>("/api/users/me/preferences", {
+    method: "PATCH",
+    body: JSON.stringify({ theme }),
+  });
+}
+
+/* ---------------- personal integration vault ---------------- */
+
+/**
+ * Connection status for the signed-in member. The response is booleans only:
+ * neither the token nor its ciphertext is ever sent to the browser.
+ */
+export function getVaultStatus(): Promise<VaultStatus> {
+  return request<VaultStatus>("/api/auth/vault");
+}
+
+/** Seals the pasted credential server-side and rotates any existing one. */
+export function connectVaultSecret(
+  provider: VaultProvider,
+  token: string,
+): Promise<VaultConnectResult> {
+  return request<VaultConnectResult>(
+    `/api/auth/vault/${encodeURIComponent(provider)}`,
+    { method: "POST", body: JSON.stringify({ token }) },
+  );
+}
+
+/** Removes the member's secret for one provider. Safe to call twice. */
+export function disconnectVaultSecret(
+  provider: VaultProvider,
+): Promise<VaultDisconnectResult> {
+  return request<VaultDisconnectResult>(
+    `/api/auth/vault/${encodeURIComponent(provider)}`,
+    { method: "DELETE" },
+  );
+}
+
+/* ---------------- presence ---------------- */
+
+/** Every non-revoked member with an `online` flag derived from last activity. */
+export function getPresence(): Promise<PresenceSnapshot> {
+  return request<PresenceSnapshot>("/api/auth/presence");
+}
+
+/** Keeps the signed-in member green; the response carries the next interval. */
+export function sendHeartbeat(): Promise<HeartbeatResult> {
+  return request<HeartbeatResult>("/api/auth/heartbeat", { method: "POST" });
 }
 
 /** Admin only: switch a member between operator and auditor. */
@@ -294,11 +472,20 @@ export async function uploadIntake(
   const body = new FormData();
   body.append("file", file);
 
-  const response = await fetch(`${BASE}/api/instances/${instanceId}/intake`, {
+  let response = await fetch(`${BASE}/api/instances/${instanceId}/intake`, {
     method: "POST",
     headers: identity ? { "x-operator-id": identity } : {},
     body,
+    credentials: "include",
   });
+  if (response.status === 401 && (await refreshSession())) {
+    response = await fetch(`${BASE}/api/instances/${instanceId}/intake`, {
+      method: "POST",
+      headers: identity ? { "x-operator-id": identity } : {},
+      body,
+      credentials: "include",
+    });
+  }
   const text = await response.text();
   const payload = text ? JSON.parse(text) : null;
 
@@ -323,10 +510,22 @@ export async function openInstanceDocument(
   stepId: string,
 ): Promise<void> {
   const identity = getIdentity();
-  const response = await fetch(
+  let response = await fetch(
     `${BASE}/api/instances/${instanceId}/documents/${stepId}`,
-    { headers: identity ? { "x-operator-id": identity } : {} },
+    {
+      headers: identity ? { "x-operator-id": identity } : {},
+      credentials: "include",
+    },
   );
+  if (response.status === 401 && (await refreshSession())) {
+    response = await fetch(
+      `${BASE}/api/instances/${instanceId}/documents/${stepId}`,
+      {
+        headers: identity ? { "x-operator-id": identity } : {},
+        credentials: "include",
+      },
+    );
+  }
 
   if (!response.ok) {
     const payload = await response.json().catch(() => null);

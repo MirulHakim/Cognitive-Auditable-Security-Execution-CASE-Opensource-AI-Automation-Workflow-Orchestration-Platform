@@ -9,8 +9,9 @@ import {
 import SecretInputModal from "./SecretInputModal";
 
 interface TelegramIntegrationCardProps {
-  botToken: string | null;
-  onSaveToken: (token: string) => void;
+  /** Server-reported connection state; the token itself never reaches the UI. */
+  connected: boolean;
+  onSaveToken: (token: string) => Promise<void>;
   onDisconnect: () => void;
 }
 
@@ -18,12 +19,12 @@ interface TelegramIntegrationCardProps {
 // the user's personal bot token.
 export const TelegramIntegrationCard: React.FC<
   TelegramIntegrationCardProps
-> = ({ botToken, onSaveToken, onDisconnect }) => {
+> = ({ connected, onSaveToken, onDisconnect }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
 
-  const isConnected = Boolean(botToken);
+  const isConnected = connected;
 
   // TODO[BACKEND]: The1.2s handshake below is mocked — dispatch
   // POST /api/integrations/telegram/test so the backend calls the Bot API
@@ -40,10 +41,6 @@ export const TelegramIntegrationCard: React.FC<
       setTimeout(() => setTestResult(null), 4000);
     }, 1200);
   };
-
-  const maskedToken = botToken
-    ? `${botToken.slice(0, 5)}...${botToken.slice(-4)}`
-    : null;
 
   return (
     <div className="bg-surface border border-subtle rounded-xl p-5 shadow-sm flex flex-col justify-between">
@@ -83,8 +80,8 @@ export const TelegramIntegrationCard: React.FC<
               <span className="text-muted font-mono">
                 Personal Bot Token:
               </span>
-              <span className="font-mono text-accent-primary font-medium">
-                {maskedToken}
+              <span className="font-mono text-success font-medium">
+                Encrypted in your vault
               </span>
             </div>
           ) : (

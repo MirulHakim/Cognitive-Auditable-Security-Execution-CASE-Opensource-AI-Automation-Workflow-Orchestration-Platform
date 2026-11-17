@@ -1,5 +1,7 @@
 # Workflow Template Module
 
+> For the full platform (PostgreSQL + Express + auth gateway + dashboard), use [../RUNBOOK.md](../RUNBOOK.md). The quick start below is for running this module on its own.
+
 A template-creation module for approval-controlled workflows: operators either build a
 template by hand or describe one in natural language, the backend validates it, and a
 template only becomes usable after an authorised human approves it.

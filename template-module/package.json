@@ -8,10 +8,12 @@
   ],
   "scripts": {
     "dev:server": "npm run dev -w server",
+    "dev:auth": "npm run dev:auth -w server",
     "start": "npm start -w server",
     "build": "npm run build -w server",
     "typecheck": "npm run typecheck -w server",
     "test": "npm test -w server",
-    "migrate": "npm run migrate -w server"
+    "migrate": "npm run migrate -w server",
+    "auth:migrate": "npm run auth:migrate -w server"
   }
 }
