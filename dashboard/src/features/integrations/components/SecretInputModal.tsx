@@ -8,7 +8,8 @@ interface SecretInputModalProps {
   inputLabel: string;
   placeholder: string;
   onClose: () => void;
-  onSubmit: (secretValue: string) => void;
+  /** Rejects on failure so the modal can stay open and show the error. */
+  onSubmit: (secretValue: string) => Promise<void> | void;
 }
 
 export const SecretInputModal: React.FC<SecretInputModalProps> = ({
@@ -22,20 +23,43 @@ export const SecretInputModal: React.FC<SecretInputModalProps> = ({
 }) => {
   const [value, setValue] = useState("");
   const [showSecret, setShowSecret] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Clear the plaintext on every dismissal path, without an effect that would
+  // trigger a cascading render.
+  const handleClose = () => {
+    setValue("");
+    setShowSecret(false);
+    setError(null);
+    setIsSubmitting(false);
+    onClose();
+  };
 
   if (!isOpen) return null;
 
-  // TODO[BACKEND]: The trimmed secret below (Telegram bot token or Gmail
-  // credential) must be POSTed to /api/integrations/secrets over TLS, where
-  // Express encrypts it with AES-256-GCM (unique IV + auth tag, per-user
-  // data key) before persisting the ciphertext to PostgreSQL — do not keep
-  // the plaintext in client state after submit.
-  const handleSubmit = (e: React.FormEvent) => {
+  // The plaintext leaves this component once, over TLS, to the gateway. The
+  // gateway seals it with AES-256-GCM; the browser never receives it back.
+  // Nothing is persisted in localStorage, and state is cleared on success.
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!value.trim()) return;
-    onSubmit(value.trim());
-    setValue("");
-    onClose();
+    const secret = value.trim();
+    if (!secret || isSubmitting) return;
+
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      await onSubmit(secret);
+      handleClose();
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Could not save the credential.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -50,8 +74,9 @@ export const SecretInputModal: React.FC<SecretInputModalProps> = ({
           </div>
           <button
             type="button"
-            onClick={onClose}
-            className="text-muted hover:text-primary p-1 rounded-lg hover:bg-surface-hover transition-colors"
+            onClick={handleClose}
+            disabled={isSubmitting}
+            className="text-muted hover:text-primary p-1 rounded-lg hover:bg-surface-hover transition-colors disabled:opacity-50"
           >
             <FiX className="w-4 h-4" />
           </button>
@@ -63,6 +88,15 @@ export const SecretInputModal: React.FC<SecretInputModalProps> = ({
         >
           <p className="text-muted leading-relaxed">{description}</p>
 
+          {error && (
+            <p
+              role="alert"
+              className="text-[11px] text-danger bg-danger/10 border border-danger/20 rounded-lg px-3 py-2"
+            >
+              {error}
+            </p>
+          )}
+
           <div>
             <label className="block text-secondary font-medium mb-1.5">
               {inputLabel}
@@ -72,7 +106,9 @@ export const SecretInputModal: React.FC<SecretInputModalProps> = ({
                 type={showSecret ? "text" : "password"}
                 required
                 value={value}
+                disabled={isSubmitting}
                 onChange={(e) => setValue(e.target.value)}
+                autoComplete="off"
                 placeholder={placeholder}
                 className="w-full bg-background border border-subtle rounded-lg px-3 py-2 text-primary font-mono placeholder:text-faint focus:outline-none focus:border-accent-primary/50 pr-10"
               />
@@ -97,16 +133,18 @@ export const SecretInputModal: React.FC<SecretInputModalProps> = ({
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-subtle">
             <button
               type="button"
-              onClick={onClose}
-              className="px-3.5 py-1.5 rounded-lg border border-strong text-secondary hover:bg-surface-hover transition-colors font-medium"
+              onClick={handleClose}
+              disabled={isSubmitting}
+              className="px-3.5 py-1.5 rounded-lg border border-strong text-secondary hover:bg-surface-hover transition-colors font-medium disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-1.5 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold transition-colors shadow-sm shadow-accent-primary/40"
+              disabled={isSubmitting}
+              className="px-4 py-1.5 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold transition-colors shadow-sm shadow-accent-primary/40 disabled:opacity-60"
             >
-              Save Credentials
+              {isSubmitting ? "Encrypting…" : "Save Credentials"}
             </button>
           </div>
         </form>

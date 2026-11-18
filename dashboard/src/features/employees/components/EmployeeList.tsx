@@ -7,9 +7,9 @@ import {
   FiEye,
   FiEdit2,
   FiUserX,
-  FiUserPlus,
 } from "react-icons/fi";
 import ActionMenu from "../../../components/ActionMenu";
+import { formatDateTime, timeAgo } from "../../../lib/format";
 
 /** UI role labels: the API's "operator" role is shown as "staff". */
 export type UserRole = "admin" | "staff" | "auditor";
@@ -21,25 +21,36 @@ export interface Employee {
   role: UserRole;
   avatarInitials: string;
   joinedDate: string;
-  status: "active" | "revoked";
+  /** Live presence from the gateway: last activity within the 2-minute window. */
+  online: boolean;
+  /** Null means the member has never signed in through the gateway. */
+  lastSeenAt: string | null;
+  /** Invitation sent, not accepted yet — no presence to show. */
+  pending: boolean;
+  /** When the magic link stops working (only while pending). */
+  pendingExpiresAt: string | null;
+  /** When the invitation was sent (only while pending). */
+  invitedAt: string | null;
 }
 
 interface EmployeeListProps {
   employees?: Employee[];
   onEditRole?: (employee: Employee) => void;
+  /** Permanently deletes the account — there is nothing left to restore. */
   onRemoveEmployee?: (id: string) => void;
-  onRestoreEmployee?: (employee: Employee) => void;
+  /** Cancels a pending invite; its magic link stops working immediately. */
+  onWithdrawInvite?: (employee: Employee) => void;
   onNavigateToEmployees?: () => void;
 }
 
-// UI-REGION: Team roster — role badge, access status, and the per-row action
-// menu. Access is a whitelist: revoking keeps the row (and its history), so a
-// revoked person can be restored with the same member id.
+// UI-REGION: Team roster — role badge, live presence, and the per-row action
+// menu. The Access column is presence (green = active now, gray = offline),
+// not an account flag; revoked accounts are deleted and never listed.
 export const EmployeeList: React.FC<EmployeeListProps> = ({
   employees = [],
   onEditRole,
   onRemoveEmployee,
-  onRestoreEmployee,
+  onWithdrawInvite,
   onNavigateToEmployees,
 }) => {
   const [activeMenu, setActiveMenu] = useState<{
@@ -94,7 +105,12 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
             <h3 className="text-sm font-semibold tracking-wide">Team Members &amp; Roles</h3>
           </div>
         )}
-        <span className="text-xs text-muted">{employees.length} members</span>
+        <span className="text-xs text-muted">
+          {employees.length} members
+          {employees.some((employee) => employee.pending)
+            ? ` · ${employees.filter((employee) => employee.pending).length} pending`
+            : ""}
+        </span>
       </div>
 
       <div className="overflow-x-auto">
@@ -119,7 +135,11 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
               employees.map((emp) => (
                 <tr key={emp.id} className="hover:bg-surface-sunken/40 transition-colors group">
                   <td className="py-3 px-4 font-mono text-[10px] text-muted">
-                    {emp.id.length > 14 ? `${emp.id.slice(0, 14)}…` : emp.id}
+                    {emp.pending
+                      ? "—"
+                      : emp.id.length > 14
+                        ? `${emp.id.slice(0, 14)}…`
+                        : emp.id}
                   </td>
 
                   <td className="py-3 px-4">
@@ -139,22 +159,44 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
                   <td className="py-3 px-4">{getRoleBadge(emp.role)}</td>
 
                   <td className="py-3 px-4">
-                    <span
-                      className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${
-                        emp.status === "active" ? "text-success" : "text-danger"
-                      }`}
-                    >
+                    {emp.pending ? (
                       <span
-                        className={`w-1.5 h-1.5 rounded-full ${
-                          emp.status === "active" ? "bg-success" : "bg-danger"
+                        title={`Invited ${emp.invitedAt ? timeAgo(emp.invitedAt) : "recently"} — expires ${
+                          emp.pendingExpiresAt
+                            ? formatDateTime(emp.pendingExpiresAt)
+                            : "in 2 hours"
                         }`}
-                      />
-                      {emp.status === "active" ? "Active" : "Access removed"}
-                    </span>
+                        className="inline-flex items-center gap-1.5 text-[11px] font-medium text-warning"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-warning" />
+                        Pending
+                      </span>
+                    ) : (
+                      <span
+                        title={
+                          emp.online
+                            ? "Active now"
+                            : emp.lastSeenAt
+                              ? `Last seen ${timeAgo(emp.lastSeenAt)}`
+                              : "Has not signed in yet"
+                        }
+                        className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${
+                          emp.online ? "text-success" : "text-muted"
+                        }`}
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            emp.online ? "bg-success" : "bg-faint"
+                          }`}
+                        />
+                        {emp.online ? "Active" : "Offline"}
+                      </span>
+                    )}
                   </td>
 
                   <td className="py-3 px-4 text-right">
-                    {(onEditRole || onRemoveEmployee || onRestoreEmployee) && (
+                    {((emp.pending && onWithdrawInvite) ||
+                      (!emp.pending && (onEditRole || onRemoveEmployee))) && (
                       <button
                         type="button"
                         aria-label={`Actions for ${emp.name}`}
@@ -188,33 +230,32 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({
           isOpen
           position={activeMenu.position}
           onClose={() => setActiveMenu(null)}
-          options={[
-            ...(activeMenu.employee.role !== "admin" && activeMenu.employee.status === "active"
+          options={
+            activeMenu.employee.pending
               ? [
                   {
-                    label: "Modify Role",
-                    icon: FiEdit2,
-                    onClick: () => onEditRole?.(activeMenu.employee),
-                  },
-                ]
-              : []),
-            ...(activeMenu.employee.status === "active"
-              ? [
-                  {
-                    label: "Remove Access",
+                    label: "Withdraw Invite",
                     icon: FiUserX,
                     variant: "danger" as const,
-                    onClick: () => onRemoveEmployee?.(activeMenu.employee.id),
+                    onClick: () => onWithdrawInvite?.(activeMenu.employee),
                   },
                 ]
-              : [
-                  {
-                    label: "Restore Access",
-                    icon: FiUserPlus,
-                    onClick: () => onRestoreEmployee?.(activeMenu.employee),
-                  },
-                ]),
-          ]}
+              : activeMenu.employee.role !== "admin"
+                ? [
+                    {
+                      label: "Modify Role",
+                      icon: FiEdit2,
+                      onClick: () => onEditRole?.(activeMenu.employee),
+                    },
+                    {
+                      label: "Revoke Access",
+                      icon: FiUserX,
+                      variant: "danger" as const,
+                      onClick: () => onRemoveEmployee?.(activeMenu.employee.id),
+                    },
+                  ]
+                : []
+          }
         />
       )}
     </div>

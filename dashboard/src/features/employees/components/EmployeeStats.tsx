@@ -8,7 +8,8 @@ interface EmployeeStatsProps {
 
 export const EmployeeStats: React.FC<EmployeeStatsProps> = ({ employees }) => {
   const total = employees.length;
-  const activeCount = employees.filter((e) => e.status === "active").length;
+  const onlineCount = employees.filter((e) => !e.pending && e.online).length;
+  const pendingCount = employees.filter((e) => e.pending).length;
   const adminCount = employees.filter((e) => e.role === "admin").length;
   const staffCount = employees.filter((e) => e.role === "staff").length;
   const auditorCount = employees.filter((e) => e.role === "auditor").length;
@@ -17,7 +18,10 @@ export const EmployeeStats: React.FC<EmployeeStatsProps> = ({ employees }) => {
     {
       label: "Total Members",
       value: total,
-      subtext: `${activeCount} active`,
+      subtext:
+        pendingCount > 0
+          ? `${onlineCount} online · ${pendingCount} pending`
+          : `${onlineCount} online now`,
       icon: FiUsers,
       color: "text-accent-primary",
       bg: "bg-accent-primary/10",

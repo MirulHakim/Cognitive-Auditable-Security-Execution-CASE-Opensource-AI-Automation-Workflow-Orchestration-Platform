@@ -4,27 +4,38 @@ import EmployeeList, { type Employee } from "./components/EmployeeList";
 import EmployeeStats from "./components/EmployeeStats";
 import ConfirmModal from "../../components/ConfirmModal";
 import {
-  addMember,
+  deleteMember,
   errorMessage,
+  inviteMember,
   listMembers,
-  revokeMember,
   setMemberRole,
+  withdrawInvitation,
 } from "../../api/client";
 import type { Member } from "../../api/types";
-import { initials, uiRole } from "../../lib/format";
+import {
+  initials,
+  pendingMemberFromInvitation,
+  uiRole,
+} from "../../lib/format";
 import { useSession } from "../../context/SessionContext";
+import { usePresence } from "../../hooks/usePresence";
 
 /**
  * Team directory backed by the real membership whitelist.
  *
- * Inviting an email grants access; removing access is a soft delete (the row
- * and all history stay); re-inviting the same email restores that member.
+ * Inviting an email creates a gateway invitation and sends a magic link; the
+ * person appears as Pending (amber) until they accept, at which point a real
+ * operators row exists and the Access column switches to live presence.
+ * Deleting an account is a hard delete in the auth gateway: the operators row,
+ * Google link and refresh tokens are removed, active JWTs fail on their next
+ * request, and the person can only return through a brand-new invitation.
  * Admin accounts are provisioned outside this module, so their role and access
  * cannot be changed here — mirroring the server rules.
  */
 export const EmployeeView: React.FC = () => {
   const { can, member: caller } = useSession();
   const [members, setMembers] = useState<Member[]>([]);
+  const presence = usePresence();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -33,13 +44,13 @@ export const EmployeeView: React.FC = () => {
 
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteName, setInviteName] = useState("");
   const [inviteRole, setInviteRole] = useState<"operator" | "auditor">("operator");
   const [busy, setBusy] = useState(false);
 
   const [roleTarget, setRoleTarget] = useState<Member | null>(null);
   const [roleDraft, setRoleDraft] = useState<"operator" | "auditor">("operator");
   const [revokeTarget, setRevokeTarget] = useState<Member | null>(null);
+  const [withdrawTarget, setWithdrawTarget] = useState<Member | null>(null);
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -56,18 +67,34 @@ export const EmployeeView: React.FC = () => {
     refresh();
   }, [refresh]);
 
+  // A revoked account is already locked out and slated for deletion; it has no
+  // place in the roster, and presence never includes it.
+  const activeMembers = useMemo(
+    () => members.filter((entry) => entry.revokedAt === null),
+    [members],
+  );
+
   const employees = useMemo<Employee[]>(
     () =>
-      members.map((entry) => ({
-        id: entry.id,
-        name: entry.displayName,
-        email: entry.email,
-        role: uiRole(entry.role),
-        avatarInitials: initials(entry.displayName),
-        joinedDate: "—",
-        status: entry.revokedAt === null ? "active" : "revoked",
-      })),
-    [members],
+      activeMembers.map((entry) => {
+        const pending = entry.status === "pending" || entry.isPending === true;
+        const live = presence.get(entry.id);
+        return {
+          id: entry.id,
+          name: entry.displayName,
+          email: entry.email,
+          role: uiRole(entry.role),
+          avatarInitials: initials(entry.displayName),
+          joinedDate: "—",
+          // An invite has no session, so presence must not paint it green.
+          online: pending ? false : (live?.online ?? false),
+          lastSeenAt: pending ? null : (live?.lastSeenAt ?? null),
+          pending,
+          pendingExpiresAt: pending ? (entry.expiresAt ?? null) : null,
+          invitedAt: pending ? (entry.invitedAt ?? null) : null,
+        };
+      }),
+    [activeMembers, presence],
   );
 
   const filteredEmployees = employees.filter((emp) => {
@@ -87,17 +114,27 @@ export const EmployeeView: React.FC = () => {
     setError(null);
     setNotice(null);
     try {
-      const created = await addMember({
-        email: inviteEmail.trim(),
-        displayName: inviteName.trim() || undefined,
-        role: inviteRole,
-      });
+      const email = inviteEmail.trim();
+      // Gateway contract: exactly { email, role }. The person is not whitelisted
+      // here; they become a member only after accepting the emailed link.
+      const result = await inviteMember({ email, role: inviteRole });
+      const pending = pendingMemberFromInvitation(result.invitation);
+
+      // Show the row as Pending immediately; the refresh reconciles with the
+      // gateway's merged directory (and removes it if acceptance raced us).
+      setMembers((current) => [
+        pending,
+        ...current.filter(
+          (entry) => entry.email.toLowerCase() !== pending.email.toLowerCase(),
+        ),
+      ]);
       setNotice(
-        `${created.displayName} can now sign in as ${created.role}.`,
+        result.channel === "DEV_LOG"
+          ? `Invitation created for ${email}. SMTP is not configured, so the magic link was written to the gateway log instead of being emailed.`
+          : `Invitation email sent to ${email}. The link expires in 2 hours.`,
       );
       setInviteOpen(false);
       setInviteEmail("");
-      setInviteName("");
       setInviteRole("operator");
       refresh();
     } catch (caught) {
@@ -108,7 +145,7 @@ export const EmployeeView: React.FC = () => {
   };
 
   const handleSaveRole = async () => {
-    if (!roleTarget || busy) return;
+    if (!roleTarget || busy || roleTarget.status === "pending") return;
     setBusy(true);
     setError(null);
     try {
@@ -123,14 +160,17 @@ export const EmployeeView: React.FC = () => {
     }
   };
 
-  const handleRevoke = async () => {
-    if (!revokeTarget || busy) return;
+  const handleDelete = async () => {
+    // Pending rows are invitations, not accounts: there is nothing to delete.
+    if (!revokeTarget || busy || revokeTarget.status === "pending") return;
     setBusy(true);
     setError(null);
     try {
-      const revoked = await revokeMember(revokeTarget.id);
+      const name = revokeTarget.displayName;
+      const result = await deleteMember(revokeTarget.id);
       setNotice(
-        `${revoked.displayName} no longer has access — their templates, reviews and runs still name them.`,
+        `${name}'s account was deleted — ${result.deleted.refreshTokens} session(s) ended. ` +
+          `They must be invited again to return.`,
       );
       setRevokeTarget(null);
       refresh();
@@ -141,18 +181,23 @@ export const EmployeeView: React.FC = () => {
     }
   };
 
-  const handleRestore = async (employee: Employee) => {
-    if (busy) return;
-    const source = members.find((entry) => entry.id === employee.id);
-    if (!source) return;
+  const handleWithdraw = async () => {
+    if (!withdrawTarget || busy) return;
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
-      const restored = await addMember({
-        email: source.email,
-        role: source.role === "admin" ? "operator" : source.role,
-      });
-      setNotice(`${restored.displayName} can access the workspace again — same member id.`);
+      const email = withdrawTarget.email;
+      const invitationId =
+        withdrawTarget.invitationId ??
+        (withdrawTarget.id.startsWith("invitation:")
+          ? withdrawTarget.id.slice("invitation:".length)
+          : withdrawTarget.id);
+      await withdrawInvitation(invitationId);
+      setNotice(
+        `Invitation for ${email} withdrawn. The magic link no longer works; invite them again if needed.`,
+      );
+      setWithdrawTarget(null);
       refresh();
     } catch (caught) {
       setError(errorMessage(caught));
@@ -162,13 +207,13 @@ export const EmployeeView: React.FC = () => {
   };
 
   const exportCsv = () => {
-    const header = "id,name,email,role,access\n";
-    const body = members
+    const header = "id,name,email,role,presence,last_seen\n";
+    const body = employees
       .map(
         (entry) =>
-          `${entry.id},"${entry.displayName}",${entry.email},${entry.role},${
-            entry.revokedAt === null ? "active" : "revoked"
-          }`,
+          `${entry.id},"${entry.name}",${entry.email},${entry.role},${
+            entry.pending ? "pending" : entry.online ? "active" : "offline"
+          },${entry.lastSeenAt ?? ""}`,
       )
       .join("\n");
     const url = URL.createObjectURL(new Blob([header + body], { type: "text/csv" }));
@@ -189,8 +234,9 @@ export const EmployeeView: React.FC = () => {
             Team Directory &amp; Access Control
           </h1>
           <p className="text-xs text-muted mt-1">
-            Invite by email, switch roles, and remove access — history is never
-            deleted.
+            Invite by email, switch roles, and revoke access. Revoking removes
+            the account and all of its sessions — a return needs a new
+            invitation.
           </p>
         </div>
 
@@ -273,7 +319,7 @@ export const EmployeeView: React.FC = () => {
             isAdmin
               ? (employee) => {
                   const source = members.find((entry) => entry.id === employee.id);
-                  if (!source) return;
+                  if (!source || source.status === "pending") return;
                   setRoleTarget(source);
                   setRoleDraft(source.role === "auditor" ? "auditor" : "operator");
                 }
@@ -283,11 +329,18 @@ export const EmployeeView: React.FC = () => {
             isAdmin
               ? (id) => {
                   const source = members.find((entry) => entry.id === id);
-                  if (source) setRevokeTarget(source);
+                  if (source && source.status !== "pending") setRevokeTarget(source);
                 }
               : undefined
           }
-          onRestoreEmployee={isAdmin ? (employee) => void handleRestore(employee) : undefined}
+          onWithdrawInvite={
+            isAdmin
+              ? (employee) => {
+                  const source = members.find((entry) => entry.id === employee.id);
+                  if (source && source.status === "pending") setWithdrawTarget(source);
+                }
+              : undefined
+          }
         />
       )}
 
@@ -295,7 +348,7 @@ export const EmployeeView: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-surface border border-subtle rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
             <div className="p-4 border-b border-subtle flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-primary">Whitelist a member</h3>
+              <h3 className="text-sm font-semibold text-primary">Invite a member</h3>
               <button
                 type="button"
                 onClick={() => setInviteOpen(false)}
@@ -319,17 +372,6 @@ export const EmployeeView: React.FC = () => {
               </label>
               <label className="block">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                  Display name (optional)
-                </span>
-                <input
-                  value={inviteName}
-                  onChange={(event) => setInviteName(event.target.value)}
-                  placeholder="Derived from the email when left empty"
-                  className="mt-1 w-full bg-background border border-subtle rounded-lg px-3 py-2 text-xs text-primary focus:outline-none focus:border-accent-primary/50"
-                />
-              </label>
-              <label className="block">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted">
                   Role
                 </span>
                 <select
@@ -344,8 +386,9 @@ export const EmployeeView: React.FC = () => {
                 </select>
               </label>
               <p className="text-[11px] text-faint leading-relaxed">
-                The address itself becomes a valid identity. Re-inviting a revoked
-                email restores the same member and their history.
+                We email a single-use magic link from the CASE system account. It
+                expires in 2 hours. The person stays <strong>Pending</strong> until
+                they accept; only then does presence tracking start.
               </p>
               <div className="flex justify-end gap-2 pt-1">
                 <button
@@ -361,7 +404,7 @@ export const EmployeeView: React.FC = () => {
                   disabled={busy || !inviteEmail.includes("@")}
                   className="px-3.5 py-1.5 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast text-xs font-semibold disabled:opacity-50"
                 >
-                  {busy ? "Saving…" : "Grant access"}
+                  {busy ? "Sending…" : "Send invitation"}
                 </button>
               </div>
             </div>
@@ -427,13 +470,24 @@ export const EmployeeView: React.FC = () => {
       )}
 
       <ConfirmModal
+        isOpen={withdrawTarget !== null}
+        title="Withdraw invitation"
+        message={`Withdraw the pending invitation for ${withdrawTarget?.email ?? "this address"}? The magic link stops working immediately. You can invite them again later.`}
+        confirmLabel="Withdraw invite"
+        cancelLabel="Keep invitation"
+        variant="warning"
+        onConfirm={() => void handleWithdraw()}
+        onCancel={() => setWithdrawTarget(null)}
+      />
+
+      <ConfirmModal
         isOpen={revokeTarget !== null}
-        title="Remove access"
-        message={`Remove ${revokeTarget?.displayName ?? "this member"}'s access? They will be blocked on their next request, but every template, review and run they touched keeps their identity.`}
-        confirmLabel="Remove access"
-        cancelLabel="Keep access"
+        title="Revoke access"
+        message={`Revoke ${revokeTarget?.displayName ?? "this member"}'s access permanently? Their login, Google link and sessions are destroyed and they drop to 401 on the next request. They can only come back through a brand-new invitation.`}
+        confirmLabel="Revoke access"
+        cancelLabel="Cancel"
         variant="danger"
-        onConfirm={() => void handleRevoke()}
+        onConfirm={() => void handleDelete()}
         onCancel={() => setRevokeTarget(null)}
       />
     </div>

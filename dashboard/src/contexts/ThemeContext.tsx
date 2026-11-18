@@ -1,11 +1,13 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
+import { saveThemePreference } from "../api/client";
 
 /**
  * User-facing theme preference. `system` follows the OS color scheme.
@@ -18,10 +20,10 @@ export type ThemePreference = "light" | "dark" | "system";
 export type ResolvedTheme = "light" | "dark";
 
 // UI-REGION: Theme provider — light/dark/system preference applied via
-// <html data-theme="...">, persisted to localStorage per device.
-// TODO[BACKEND]: Persist the preference server-side (PUT
-// /api/users/me/preferences with { theme }) so it follows the account across
-// devices; keep localStorage as the offline fallback.
+// <html data-theme="...">. The choice is written to the account by
+// PATCH /api/users/me/preferences and cached in localStorage so the first paint
+// never waits for the network. On a new device the server value is applied
+// after sign-in (`applyServerTheme`), replacing the local fallback.
 const STORAGE_KEY = "case_ui_theme";
 
 interface ThemeContextValue {
@@ -31,7 +33,10 @@ interface ThemeContextValue {
   resolvedTheme: ResolvedTheme;
   /** Live OS preference, tracked so "system" reacts to OS changes. */
   systemTheme: ResolvedTheme;
+  /** User action: applies immediately and persists to the account. */
   setTheme: (theme: ThemePreference) => void;
+  /** Login sync: applies the saved account theme without echoing it back. */
+  applyServerTheme: (theme: ThemePreference) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
@@ -80,18 +85,36 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     root.style.colorScheme = resolvedTheme;
   }, [resolvedTheme]);
 
-  const setTheme = (next: ThemePreference) => {
-    setThemeState(next);
-    try {
-      window.localStorage.setItem(STORAGE_KEY, next);
-    } catch {
-      // Persisting is best-effort; the in-memory state still applies.
-    }
-  };
+  const applyTheme = useCallback(
+    (next: ThemePreference, syncToAccount: boolean) => {
+      setThemeState(next);
+      try {
+        window.localStorage.setItem(STORAGE_KEY, next);
+      } catch {
+        // Persisting is best-effort; the in-memory state still applies.
+      }
+      if (syncToAccount) {
+        // Fire-and-forget: the switch is instant, and an offline gateway must
+        // not make the UI look broken. The next sign-in reconciles.
+        void saveThemePreference(next).catch(() => undefined);
+      }
+    },
+    [],
+  );
+
+  const setTheme = useCallback(
+    (next: ThemePreference) => applyTheme(next, true),
+    [applyTheme],
+  );
+
+  const applyServerTheme = useCallback(
+    (next: ThemePreference) => applyTheme(next, false),
+    [applyTheme],
+  );
 
   const value = useMemo<ThemeContextValue>(
-    () => ({ theme, resolvedTheme, systemTheme, setTheme }),
-    [theme, resolvedTheme, systemTheme],
+    () => ({ theme, resolvedTheme, systemTheme, setTheme, applyServerTheme }),
+    [theme, resolvedTheme, systemTheme, setTheme, applyServerTheme],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

@@ -6,7 +6,6 @@ import {
   FiSave,
   FiCheck,
   FiLogOut,
-  FiKey,
   FiSun,
   FiMoon,
   FiMonitor,
@@ -18,6 +17,9 @@ import {
 } from "react-icons/fi";
 import ConfirmModal from "../../components/ConfirmModal";
 import { useTheme, type ThemePreference } from "../../contexts/ThemeContext";
+import { useSession } from "../../context/SessionContext";
+import { errorMessage, updateProfile } from "../../api/client";
+import { initials } from "../../lib/format";
 
 interface SettingsViewProps {
   currentUser?: {
@@ -36,19 +38,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   },
   onLogout,
 }) => {
-  // Profile State (corporate email is SSO-managed and read-only below)
-  const [name, setName] = useState(currentUser.name);
-  const [contactNumber, setContactNumber] = useState("+60 12-345 6789");
-  const [avatarInitials, setAvatarInitials] = useState("AR");
+  const { profile, refresh, refreshProfile } = useSession();
+
+  // Profile drafts: null until edited, so a profile that arrives after mount
+  // fills the form without an effect that could overwrite typing.
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const [contactDraft, setContactDraft] = useState<string | null>(null);
+  const name = nameDraft ?? profile?.displayName ?? currentUser.name;
+  const contactNumber = contactDraft ?? profile?.contactNumber ?? "";
+  const avatarInitials = initials(name);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const avatarFileRef = useRef<HTMLInputElement>(null);
-
-  // Security State
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [passwordStatus, setPasswordStatus] = useState<string | null>(null);
 
   // Preference State
   const [canvasSound, setCanvasSound] = useState(true);
@@ -66,6 +67,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   // Feedback State
   const [profileSaved, setProfileSaved] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   // Theme State (persisted via ThemeContext)
@@ -81,14 +84,35 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     { value: "system", label: "System", icon: FiMonitor },
   ];
 
-  // TODO[BACKEND]: Save profile via PUT /api/users/me with { name,
-  // contactNumber } (email stays SSO-managed/read-only); the avatar upload
-  // overlay should POST the picked file as multipart/form-data to
-  // /api/users/me/avatar and store the returned image URL.
-  const handleSaveProfile = (e: React.FormEvent) => {
+  // Persisted by the gateway (PATCH /api/users/me). The email stays
+  // Google-managed; the avatar upload remains a local preview.
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    setProfileSaved(true);
-    setTimeout(() => setProfileSaved(false), 2500);
+    if (savingProfile) return;
+
+    const trimmedName = name.trim();
+    if (trimmedName.length < 2) {
+      setProfileError("Display name must be at least 2 characters.");
+      return;
+    }
+
+    setSavingProfile(true);
+    setProfileError(null);
+    try {
+      await updateProfile({
+        displayName: trimmedName,
+        contactNumber: contactNumber.trim() || null,
+      });
+      await Promise.all([refreshProfile(), refresh()]);
+      setNameDraft(null);
+      setContactDraft(null);
+      setProfileSaved(true);
+      setTimeout(() => setProfileSaved(false), 2500);
+    } catch (caught) {
+      setProfileError(errorMessage(caught));
+    } finally {
+      setSavingProfile(false);
+    }
   };
 
   // Simulated profile-picture upload: pick a local file, show a brief
@@ -104,31 +128,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setIsUploadingAvatar(false);
     }, 900);
     e.target.value = "";
-  };
-
-  // TODO[BACKEND]: POST /api/users/me/password with { currentPassword,
-  // newPassword } — but verify this card should survive the Google-SSO-only
-  // auth model (credentials are SSO-managed), in which case remove it.
-  const handleUpdatePassword = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentPassword) {
-      setPasswordStatus("Please provide your current password.");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setPasswordStatus("New passwords do not match.");
-      return;
-    }
-    if (newPassword.length < 8) {
-      setPasswordStatus("New password must be at least 8 characters long.");
-      return;
-    }
-
-    setPasswordStatus("Password updated successfully!");
-    setCurrentPassword("");
-    setNewPassword("");
-    setConfirmPassword("");
-    setTimeout(() => setPasswordStatus(null), 3000);
   };
 
   // TODO[BACKEND]: Replace the simulated1.4s timer below with a real HTTP
@@ -176,16 +175,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           System & Account Settings
         </h1>
         <p className="text-xs text-muted mt-1">
-          Manage your personal credentials, workspace preferences, and session
-          controls.
+          Manage your profile, workspace preferences, and session controls.
         </p>
       </div>
 
       <div className="rounded-xl border border-info/30 bg-info/10 px-4 py-3 text-xs text-info leading-relaxed">
-        <span className="font-semibold">Identity is managed by the workspace directory.</span>{" "}
-        Your name, email and role come from the member an admin whitelisted; theme
-        and sign-out apply immediately. Profile edits, password changes and the
-        local-model panel below are not persisted yet.
+        <span className="font-semibold">Sign-in is managed by Google.</span>{" "}
+        Your email and role come from the member record an admin invited. Display
+        name and contact number are saved to that record, and your theme follows
+        the account across devices. The avatar upload and local-model panel below
+        remain device previews.
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -221,17 +220,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     type="text"
                     required
                     value={name}
-                    onChange={(e) => {
-                      setName(e.target.value);
-                      const parts = e.target.value.split(" ");
-                      setAvatarInitials(
-                        parts
-                          .map((p) => p[0])
-                          .slice(0, 2)
-                          .join("")
-                          .toUpperCase() || "AF",
-                      );
-                    }}
+                    onChange={(e) => setNameDraft(e.target.value)}
                     className="w-full bg-background border border-subtle rounded-lg px-3 py-2 text-primary focus:outline-none focus:border-accent-primary/50"
                   />
                 </div>
@@ -243,7 +232,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <input
                     type="tel"
                     value={contactNumber}
-                    onChange={(e) => setContactNumber(e.target.value)}
+                    onChange={(e) => setContactDraft(e.target.value)}
                     placeholder="+60 12-345 6789"
                     className="w-full bg-background border border-subtle rounded-lg px-3 py-2 text-primary placeholder:text-faint focus:outline-none focus:border-accent-primary/50"
                   />
@@ -262,6 +251,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </span>
                 </div>
               </div>
+
+              {profileError && (
+                <p className="text-[11px] text-danger leading-relaxed">
+                  {profileError}
+                </p>
+              )}
 
               <div className="flex items-center justify-between pt-3 border-t border-subtle/80">
                 <div className="flex items-center gap-2.5">
@@ -309,7 +304,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold transition-colors shadow-sm shadow-accent-primary/40"
+                  disabled={savingProfile}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold transition-colors shadow-sm shadow-accent-primary/40 disabled:opacity-60 disabled:cursor-wait"
                 >
                   {profileSaved ? (
                     <>
@@ -319,7 +315,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   ) : (
                     <>
                       <FiSave className="w-3.5 h-3.5" />
-                      <span>Save Changes</span>
+                      <span>{savingProfile ? "Saving…" : "Save Changes"}</span>
                     </>
                   )}
                 </button>
@@ -523,90 +519,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         </div>
 
-        {/* Right Column: Password, session & appearance */}
+        {/* Right Column: session & appearance */}
         <div className="md:col-span-2 xl:col-span-1 space-y-6">
-          {/* // UI-REGION: Update Password card (prototype credential flow). */}
-          <div className="bg-surface border border-subtle rounded-xl p-5 shadow-sm">
-            <div className="flex items-center gap-2.5 pb-3 border-b border-subtle">
-              <div className="w-8 h-8 rounded-lg bg-warning/10 border border-warning/20 text-warning flex items-center justify-center">
-                <FiKey className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-primary">
-                  Update Password
-                </h3>
-                <p className="text-[11px] text-muted">
-                  Secure your platform credentials.
-                </p>
-              </div>
-            </div>
-
-            <form
-              onSubmit={handleUpdatePassword}
-              className="mt-4 space-y-3 text-xs"
-            >
-              <div>
-                <label className="block text-secondary font-medium mb-1">
-                  Current Password
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full bg-background border border-subtle rounded-lg px-3 py-1.5 text-primary font-mono placeholder:text-faint focus:outline-none focus:border-accent-primary/50"
-                />
-              </div>
-
-              <div>
-                <label className="block text-secondary font-medium mb-1">
-                  New Password
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="At least 8 chars"
-                  className="w-full bg-background border border-subtle rounded-lg px-3 py-1.5 text-primary font-mono placeholder:text-faint focus:outline-none focus:border-accent-primary/50"
-                />
-              </div>
-
-              <div>
-                <label className="block text-secondary font-medium mb-1">
-                  Confirm Password
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Repeat new password"
-                  className="w-full bg-background border border-subtle rounded-lg px-3 py-1.5 text-primary font-mono placeholder:text-faint focus:outline-none focus:border-accent-primary/50"
-                />
-              </div>
-
-              {passwordStatus && (
-                <p
-                  className={`text-[11px] mt-1 ${
-                    passwordStatus.includes("successfully")
-                      ? "text-success"
-                      : "text-danger"
-                  }`}
-                >
-                  {passwordStatus}
-                </p>
-              )}
-
-              <button
-                type="submit"
-                className="w-full mt-2 px-3 py-1.5 rounded-lg border border-strong bg-surface-hover/60 hover:bg-surface-hover text-secondary transition-colors font-medium text-xs"
-              >
-                Change Password
-              </button>
-            </form>
-          </div>
+          {/* No password card: credentials are Google-managed, so a password
+              form here would be dead UI. */}
 
           {/* // UI-REGION: Active Session — logout danger zone. */}
           <div className="bg-surface border border-danger/20 rounded-xl p-5 shadow-sm">
@@ -652,8 +568,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   Appearance
                 </h3>
                 <p className="text-[11px] text-muted">
-                  Pick how CASE looks on this device. Your choice is saved to
-                  this browser.
+                  Pick how CASE looks. Your choice is saved to your account and
+                  applied on every device after sign-in.
                 </p>
               </div>
             </div>

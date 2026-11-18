@@ -9,7 +9,9 @@ import tailwindcss from "@tailwindcss/vite";
  */
 const apiProxy = {
   "/api": {
-    target: process.env.VITE_API_PROXY ?? "http://127.0.0.1:8000",
+    // Default to the auth gateway. Point VITE_API_PROXY at :8000 to run the
+    // legacy API without auth (the gateway proxies to it in the normal setup).
+    target: process.env.VITE_API_PROXY ?? "http://127.0.0.1:8080",
     changeOrigin: true,
   },
 };
