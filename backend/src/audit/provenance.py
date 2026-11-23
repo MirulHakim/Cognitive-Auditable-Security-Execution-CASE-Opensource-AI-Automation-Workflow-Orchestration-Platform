@@ -71,12 +71,19 @@ def select_lineage_events(events: Sequence[AuditEvent]) -> tuple[AuditEvent, ...
     Events logged after closing (PROVENANCE_RECORDED, LINEAGE_VERIFIED, ...) are
     left out, so PROVENANCE_RECORDED is never part of its own lineage.
     """
+    # Step 1: sort the events, oldest first.
     ordered = sorted(events, key=lambda e: e.seq)
+
+    # Step 2: find the "job finished" event.
     closed = [e for e in ordered if e.action == A.EXECUTION_CLOSED.value]
+
+    # Step 3: no "job finished" event = job not done yet = stop here.
     if len(closed) != 1:
         found = "no EXECUTION_CLOSED" if not closed else f"{len(closed)} EXECUTION_CLOSED events"
         raise ProvenanceError(f"request cannot be sealed: it has {found} (exactly one is required)",
                               code="NOT_CLOSED")
+
+    # Step 4: keep events up to "job finished", throw away the rest.
     return tuple(e for e in ordered if e.seq <= closed[0].seq)
 
 

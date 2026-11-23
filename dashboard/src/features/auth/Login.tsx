@@ -1,20 +1,47 @@
 import React, { useState } from "react";
 import { FiArrowRight, FiLock, FiMail, FiShield } from "react-icons/fi";
-import { DEMO_IDENTITIES, errorMessage, getIdentity } from "../../api/client";
+import { FcGoogle } from "react-icons/fc";
+import {
+  DEMO_IDENTITIES,
+  errorMessage,
+  getIdentity,
+  startGoogleSignIn,
+} from "../../api/client";
 import { useSession } from "../../context/SessionContext";
 
+/** Local demo identities only work with AUTH_ALLOW_LEGACY_IDENTITY=true. */
+const SHOW_DEV_IDENTITIES = import.meta.env.VITE_DEV_IDENTITIES === "true";
+
+const AUTH_FAILURE_COPY: Record<string, string> = {
+  INVITATION_REQUIRED:
+    "That Google account has not been invited to this workspace. Ask an administrator for an invitation.",
+  ACCESS_REVOKED: "This account's workspace access has been revoked.",
+  OAUTH_STATE_INVALID: "The sign-in attempt expired or was tampered with. Please try again.",
+  OAUTH_CODE_MISSING: "Google did not return an authorization code. Please try again.",
+  GOOGLE_EXCHANGE_FAILED: "Google sign-in could not be verified. Please try again.",
+  IDENTITY_CONFLICT:
+    "This Google account is already linked to a different member. Contact an administrator.",
+};
+
+function initialAuthError(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("auth") !== "failed") return null;
+  const reason = params.get("reason") ?? "";
+  return AUTH_FAILURE_COPY[reason] ?? "Sign-in could not be completed. Please try again.";
+}
+
 /**
- * Sign-in is a whitelist check: the email must belong to a member an admin
- * invited (or a seeded member id). The server resolves it and returns the
- * permissions the workspace will honour.
+ * Google is the primary sign-in. The gateway handles OAuth, sets an HttpOnly
+ * cookie, and redirects back here; the dashboard never receives the JWT.
+ *
+ * The legacy email/member-id form is kept behind VITE_DEV_IDENTITIES=true for
+ * local demos that run the gateway with AUTH_ALLOW_LEGACY_IDENTITY=true.
  */
 export const Login: React.FC = () => {
   const { signIn, error: sessionError } = useSession();
-  // Prefilled after an outage: the stored identity is kept when the API is
-  // unreachable, so the user can retry instead of retyping their address.
   const [email, setEmail] = useState(() => getIdentity() ?? "");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialAuthError);
 
   const submit = async (identifier: string) => {
     if (busy) return;
@@ -48,84 +75,103 @@ export const Login: React.FC = () => {
           </p>
         </div>
 
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submit(email);
+        <button
+          type="button"
+          onClick={() => {
+            setError(null);
+            startGoogleSignIn();
           }}
-          className="space-y-3"
+          className="w-full inline-flex items-center justify-center gap-2.5 py-2.5 rounded-lg bg-surface-hover border border-strong hover:border-accent-primary/60 text-primary font-semibold text-sm transition-colors shadow-sm"
         >
-          <label className="block">
-            <span className="text-[11px] font-medium text-muted uppercase tracking-wide">
-              Work email or member id
-            </span>
-            <div className="relative mt-1.5">
-              <FiMail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-faint" />
-              <input
-                type="text"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="you@agency.gov.my"
-                autoComplete="username"
-                className="w-full bg-background border border-subtle rounded-lg pl-9 pr-3 py-2.5 text-sm text-primary placeholder:text-faint focus:outline-none focus:border-accent-primary/60"
-              />
-            </div>
-          </label>
+          <FcGoogle className="w-5 h-5" />
+          <span>Continue with Google</span>
+        </button>
 
-          {(error ?? sessionError) && (
-            <p className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
-              {error ?? sessionError}
-            </p>
-          )}
+        <p className="mt-3 text-center text-[11px] text-faint leading-relaxed">
+          Invitation-only: sign in with the Google account an administrator invited.
+        </p>
 
-          <button
-            type="submit"
-            disabled={busy}
-            className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold text-sm transition-colors shadow-md shadow-accent-primary/30 disabled:opacity-60"
-          >
-            {busy ? (
-              <span className="w-4 h-4 border-2 border-accent-contrast/40 border-t-accent-contrast rounded-full animate-spin" />
-            ) : (
-              <FiArrowRight className="w-4 h-4" />
-            )}
-            <span>{busy ? "Checking access…" : "Continue"}</span>
-          </button>
-        </form>
-
-        <div className="mt-5 pt-4 border-t border-subtle">
-          <p className="text-[11px] font-medium text-muted uppercase tracking-wide mb-2">
-            Workspace identities
+        {(error ?? sessionError) && (
+          <p className="mt-4 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+            {error ?? sessionError}
           </p>
-          <div className="space-y-1.5">
-            {DEMO_IDENTITIES.map((identity) => (
-              <button
-                key={identity.identifier}
-                type="button"
-                onClick={() => {
-                  setEmail(identity.identifier);
-                  void submit(identity.identifier);
+        )}
+
+        {SHOW_DEV_IDENTITIES && (
+          <>
+            <div className="mt-6 pt-5 border-t border-subtle">
+              <p className="text-[11px] font-medium text-muted uppercase tracking-wide mb-2">
+                Development identity
+              </p>
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void submit(email);
                 }}
-                disabled={busy}
-                className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface hover:bg-surface-hover text-xs text-secondary transition-colors disabled:opacity-60"
+                className="space-y-3"
               >
-                <span className="flex items-center gap-2">
-                  <FiShield className="w-3.5 h-3.5 text-accent-primary" />
-                  {identity.label}
-                </span>
-                <span className="font-mono text-[10px] text-faint">
-                  {identity.identifier}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
+                <label className="block">
+                  <span className="text-[11px] font-medium text-muted uppercase tracking-wide">
+                    Work email or member id
+                  </span>
+                  <div className="relative mt-1.5">
+                    <FiMail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-faint" />
+                    <input
+                      type="text"
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      placeholder="you@agency.gov.my"
+                      autoComplete="username"
+                      className="w-full bg-background border border-subtle rounded-lg pl-9 pr-3 py-2.5 text-sm text-primary placeholder:text-faint focus:outline-none focus:border-accent-primary/60"
+                    />
+                  </div>
+                </label>
+
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-accent-primary hover:bg-accent-primary-hover text-accent-contrast font-semibold text-sm transition-colors shadow-md shadow-accent-primary/30 disabled:opacity-60"
+                >
+                  {busy ? (
+                    <span className="w-4 h-4 border-2 border-accent-contrast/40 border-t-accent-contrast rounded-full animate-spin" />
+                  ) : (
+                    <FiArrowRight className="w-4 h-4" />
+                  )}
+                  <span>{busy ? "Checking access…" : "Continue"}</span>
+                </button>
+              </form>
+
+              <div className="mt-4 space-y-1.5">
+                {DEMO_IDENTITIES.map((identity) => (
+                  <button
+                    key={identity.identifier}
+                    type="button"
+                    onClick={() => {
+                      setEmail(identity.identifier);
+                      void submit(identity.identifier);
+                    }}
+                    disabled={busy}
+                    className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface hover:bg-surface-hover text-xs text-secondary transition-colors disabled:opacity-60"
+                  >
+                    <span className="flex items-center gap-2">
+                      <FiShield className="w-3.5 h-3.5 text-accent-primary" />
+                      {identity.label}
+                    </span>
+                    <span className="font-mono text-[10px] text-faint">
+                      {identity.identifier}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
 
         <p className="mt-5 flex items-start gap-1.5 text-[11px] text-faint leading-relaxed">
           <FiLock className="w-3.5 h-3.5 shrink-0 mt-0.5" />
           <span>
-            Access is a whitelist: an admin invites an email, and only that address
-            can sign in. Removing access blocks the account but keeps its audit
-            history.
+            Sessions use short-lived JWTs in HttpOnly cookies. Invitations expire
+            after two hours; revoked members keep their audit history.
           </span>
         </p>
       </div>

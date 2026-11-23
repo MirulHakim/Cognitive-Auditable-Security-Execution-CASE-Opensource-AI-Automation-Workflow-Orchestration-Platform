@@ -9,15 +9,16 @@ import {
 import SecretInputModal from "./SecretInputModal";
 
 interface GmailIntegrationCardProps {
-  linkedEmail: string | null;
-  onSaveCredentials: (email: string) => void;
+  /** Server-reported connection state; the credential itself never reaches the UI. */
+  connected: boolean;
+  onSaveCredentials: (credential: string) => Promise<void>;
   onDisconnect: () => void;
 }
 
 // UI-REGION: Gmail integration card — link/unlink states for the user's
 // personal mailbox sync handle.
 export const GmailIntegrationCard: React.FC<GmailIntegrationCardProps> = ({
-  linkedEmail,
+  connected,
   onSaveCredentials,
   onDisconnect,
 }) => {
@@ -25,7 +26,7 @@ export const GmailIntegrationCard: React.FC<GmailIntegrationCardProps> = ({
   const [isCheckingSync, setIsCheckingSync] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
 
-  const isConnected = Boolean(linkedEmail);
+  const isConnected = connected;
 
   // TODO[BACKEND]: The1.5s sync result below is mocked — replace with
   // GET /api/integrations/gmail/status so the backend verifies IMAP/Gmail
@@ -80,8 +81,8 @@ export const GmailIntegrationCard: React.FC<GmailIntegrationCardProps> = ({
           {isConnected ? (
             <div className="flex items-center justify-between">
               <span className="text-muted font-mono">Linked Inbox:</span>
-              <span className="font-mono text-accent-primary font-medium">
-                {linkedEmail}
+              <span className="font-mono text-success font-medium">
+                Encrypted in your vault
               </span>
             </div>
           ) : (
@@ -146,9 +147,9 @@ export const GmailIntegrationCard: React.FC<GmailIntegrationCardProps> = ({
       <SecretInputModal
         isOpen={isModalOpen}
         title="Connect Personal Gmail"
-        description="Enter your Google Workspace email address or App Password. This grants permission only to read inbound notifications configured in your personal email trigger nodes."
-        inputLabel="Google Account Email / App Password"
-        placeholder="your.name@company.com"
+        description="Paste your Google Workspace App Password. It is encrypted at rest and cannot be read back from this page; reconnect with a new password to rotate it."
+        inputLabel="Google App Password"
+        placeholder="abcd efgh ijkl mnop"
         onClose={() => setIsModalOpen(false)}
         onSubmit={onSaveCredentials}
       />

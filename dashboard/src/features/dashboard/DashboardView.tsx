@@ -3,6 +3,7 @@ import { MetricCard } from "./components/MetricCard";
 import WorkflowTable from "../workflows/components/list/WorkflowTable";
 import EmployeeList, { type Employee } from "../employees/components/EmployeeList";
 import { useWorkflowData } from "../workflows/useWorkflowData";
+import { usePresence } from "../../hooks/usePresence";
 import { initials, uiRole } from "../../lib/format";
 import {
   FiPlayCircle,
@@ -27,6 +28,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 }) => {
   const data = useWorkflowData();
   const { templates, instances, members, rows } = data;
+  const presence = usePresence();
 
   const metrics = useMemo(() => {
     const startOfToday = new Date();
@@ -41,18 +43,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     };
   }, [templates, instances]);
 
+  // Revoked accounts are deleted server-side and never listed here; presence
+  // comes from the gateway snapshot, keyed by the same member id.
   const employees = useMemo<Employee[]>(
     () =>
-      members.map((member) => ({
-        id: member.id,
-        name: member.displayName,
-        email: member.email,
-        role: uiRole(member.role),
-        avatarInitials: initials(member.displayName),
-        joinedDate: "—",
-        status: member.revokedAt === null ? "active" : "revoked",
-      })),
-    [members],
+      members
+        .filter((member) => member.revokedAt === null)
+        // Invitations are not people yet: the overview shows real members only.
+        .filter((member) => member.status !== "pending" && member.isPending !== true)
+        .map((member) => {
+          const live = presence.get(member.id);
+          return {
+            id: member.id,
+            name: member.displayName,
+            email: member.email,
+            role: uiRole(member.role),
+            avatarInitials: initials(member.displayName),
+            joinedDate: "—",
+            online: live?.online ?? false,
+            lastSeenAt: live?.lastSeenAt ?? null,
+            pending: false,
+            pendingExpiresAt: null,
+            invitedAt: null,
+          };
+        }),
+    [members, presence],
   );
 
   const openRow = (id: string) => {

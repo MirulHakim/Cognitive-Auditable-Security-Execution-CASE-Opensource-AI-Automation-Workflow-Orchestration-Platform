@@ -7,6 +7,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.secure_api import router
+from src.audit.routes import audit_lifespan, register_error_handlers as register_audit_errors, \
+    router as audit_router
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, START, END
@@ -19,7 +21,8 @@ from langgraph.checkpoint.memory import MemorySaver
 app = FastAPI(
     title="CASE AI Orchestration Platform API",
     description="API for managing Human-in-the-Loop workflows with Ollama and LangGraph",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=audit_lifespan,  # creates the AuditService (Postgres if DATABASE_URL is set)
 )
 
 # Allow React Frontend (Vite) to communicate with FastAPI
@@ -35,6 +38,10 @@ app.add_middleware(
 # REGISTER SECURE API ROUTES (Task 2.2 - Sprint 2)
 # =====================================================================
 app.include_router(router)
+
+# Audit read API (Audit Phase 5, AUDIT_MODULE_PLAN.md §9): /api/v1/audit/...
+app.include_router(audit_router)
+register_audit_errors(app)
 
 
 # =====================================================================

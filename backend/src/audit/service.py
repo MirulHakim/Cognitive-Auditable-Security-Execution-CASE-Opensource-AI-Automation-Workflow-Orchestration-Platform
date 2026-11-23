@@ -26,7 +26,7 @@ from .catalogue import EVENT_TYPES, REQUIRED_DETAILS, AuditAction, find_forbidde
 from .errors import AuditValidationError, ProvenanceError
 from .repository import AuditRepository, ChainHead
 from .schemas import (ActorRoleEnum, ActorTypeEnum, AuditEvent, AuditSourceEnum, ChainVerificationResult,
-                      LineageVerificationResult, OutcomeEnum, ProvenanceRecord)
+                      ExportRecord, LineageVerificationResult, OutcomeEnum, ProvenanceRecord)
 from . import provenance, verifier
 
 if TYPE_CHECKING:
@@ -102,6 +102,7 @@ class AuditService:
 
     def __init__(self, repository: AuditRepository, *, clock: Callable[[], datetime] = _utc_now,
                  new_id: Callable[[], UUID] = uuid4) -> None:
+        self.repository = repository  # read-only helpers (queries.py, export.py) read through the same storage
         self._repository = repository #storage used to store the events in a workspace hash chain. It is an instance of AuditRepository, which is a protocol that defines the methods for appending events, getting the head of the chain, and listing events.
         self._clock = clock #to get tiestamp
         self._new_id = new_id #to produce UUID
@@ -286,6 +287,34 @@ class AuditService:
                              action=action.value, target=f"execution:{execution_id}", source=source,
                              outcome=outcome.value, details=details, execution_id=execution_id)
         return result
+
+    # ------------------------------------------------------------------
+    # Export log (§8.6) - Phase 5
+    # ------------------------------------------------------------------
+
+    async def record_export(self, record: ExportRecord, *, source: str = "WEB_APP") -> None:
+        """Store one audit_exports row and log AUDIT_EXPORTED, in one transaction.
+
+        Fail-closed: export.py calls this BEFORE the file is handed out, so if
+        it raises, nobody gets a file that was never logged."""
+        _enum_value(AuditSourceEnum, source, "INVALID_SOURCE", "source")
+        async with self._repository.transaction() as tx:
+            await self._repository.save_export(record, session=tx)
+            await self.log_event(
+                workspace_id=str(record.workspace_id), actor=record.exported_by,
+                role=record.exported_role.value, action=AuditAction.AUDIT_EXPORTED.value,
+                target=f"workspace:{record.workspace_id}", source=source, outcome=OutcomeEnum.SUCCESS.value,
+                execution_id=record.filters.get("execution_id"), session=tx,
+                details={"export_id": str(record.export_id), "format": record.format.value,
+                         "record_count": record.record_count, "head_seq": record.head_seq,
+                         "head_hash": record.head_hash, "file_hash": record.file_hash})
+
+    def now(self) -> datetime:
+        """The service clock (UTC), for timestamps export.py writes into a file."""
+        return self._now()
+
+    def new_id(self) -> UUID:
+        return self._new_id()
 
     def _now(self) -> datetime:
         now = self._clock()

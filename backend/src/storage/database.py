@@ -52,7 +52,8 @@ class Database:
     """Async connection pool + transaction helper.
 
     `conninfo` is a Postgres URL, e.g.
-    postgresql://case_app:case_app_dev@localhost:5432/case_dev
+    postgresql://case_app:case_app_dev@127.0.0.1:5432/case_dev
+    (127.0.0.1 rather than "localhost": see the note in docker-compose.yml.)
     If it is not given, DATABASE_URL is used. Extra keyword arguments are
     passed to every connection (e.g. options="-c TimeZone=Asia/Kuala_Lumpur").
     """

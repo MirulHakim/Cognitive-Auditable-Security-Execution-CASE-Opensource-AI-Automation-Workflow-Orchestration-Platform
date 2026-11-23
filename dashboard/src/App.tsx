@@ -13,6 +13,7 @@ import SettingsView from "./features/settings/SettingsView";
 import AuditView from "./features/audit/AuditView";
 import type { NotificationItem } from "./components/Notification";
 import { useSession } from "./context/SessionContext";
+import { useHeartbeat } from "./hooks/usePresence";
 import { listInstances, listTemplates } from "./api/client";
 import { initials, uiRole } from "./lib/format";
 
@@ -22,6 +23,11 @@ const TAB_PERMISSION: Partial<Record<NavItem, string>> = {
 
 export default function App() {
   const { member, loading, signOut, can } = useSession();
+
+  // Keeps the signed-in member green in everyone's presence view. It runs only
+  // while this tab is visible, so closing the app turns them offline within the
+  // gateway's 2-minute window without any explicit sign-out.
+  useHeartbeat(member !== null);
 
   // Navigation state — the shell survives identity switches; the workflow
   // canvas and the run detail are full-screen sub-views.

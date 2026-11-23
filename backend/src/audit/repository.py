@@ -67,7 +67,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 
 from .canonical import GENESIS_HASH, normalize
-from .schemas import AuditEvent, ChainVerificationResult, ProvenanceRecord
+from .schemas import AuditEvent, ChainVerificationResult, EventFilter, ExportRecord, ProvenanceRecord
 
 if TYPE_CHECKING:
     from psycopg import AsyncConnection
@@ -127,6 +127,27 @@ class AuditRepository(Protocol):
 
     async def get_provenance(self, workspace_id: UUID, execution_id: str) -> Optional[ProvenanceRecord]: ...
 
+    # Phase 5 (read API + export, §8.6, §9): reads for the endpoints, plus the export log.
+    async def query_events(self, workspace_id: UUID, filters: EventFilter, *, limit: int | None,
+                           offset: int = 0, to_seq: int | None = None,
+                           newest_first: bool = True) -> tuple[tuple[AuditEvent, ...], int]:
+        """One page of the timeline: (events, total number matching the filters).
+        to_seq caps the seq (an export reads only up to the head it reported)."""
+        ...
+
+    async def get_event(self, workspace_id: UUID, event_id: UUID) -> Optional[AuditEvent]: ...
+
+    async def list_execution_ids(self, workspace_id: UUID, *, limit: int,
+                                 offset: int = 0) -> tuple[tuple[str, ...], int]:
+        """Request ids in this workspace, newest request first (by its first seq), and how many there are."""
+        ...
+
+    async def save_export(self, record: ExportRecord, *, session: AsyncConnection | None = None) -> None: ...
+
+    async def list_exports(self, workspace_id: UUID, *, limit: int | None = None) -> tuple[ExportRecord, ...]:
+        """Stored export records, newest first."""
+        ...
+
 #nak validate that a newly built audit event correctly
 #continues the current workspace hash chain.
 def check_links(workspace_id: UUID, 
@@ -160,6 +181,7 @@ class InMemoryAuditRepository:
         self._locks: dict[UUID, asyncio.Lock] = {}
         self._verifications: dict[UUID, list[ChainVerificationResult]] = {}
         self._provenance: dict[tuple[UUID, str], ProvenanceRecord] = {}
+        self._exports: dict[UUID, list[ExportRecord]] = {}
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[None]:
@@ -230,6 +252,35 @@ class InMemoryAuditRepository:
         record = self._provenance.get((workspace_id, execution_id))
         return None if record is None else record.model_copy(deep=True)
 
+    async def query_events(self, workspace_id: UUID, filters: EventFilter, *, limit: int | None,
+                           offset: int = 0, to_seq: int | None = None,
+                           newest_first: bool = True) -> tuple[tuple[AuditEvent, ...], int]:
+        selected = sorted((e for e in self._events.get(workspace_id, ())
+                           if filters.matches(e) and (to_seq is None or e.seq <= to_seq)),
+                          key=lambda e: e.seq, reverse=newest_first)
+        page = selected[offset:] if limit is None else selected[offset:offset + limit]
+        return tuple(e.model_copy(deep=True) for e in page), len(selected)
+
+    async def get_event(self, workspace_id: UUID, event_id: UUID) -> Optional[AuditEvent]:
+        event = next((e for e in self._events.get(workspace_id, ()) if e.event_id == event_id), None)
+        return None if event is None else event.model_copy(deep=True)
+
+    async def list_execution_ids(self, workspace_id: UUID, *, limit: int,
+                                 offset: int = 0) -> tuple[tuple[str, ...], int]:
+        first_seq: dict[str, int] = {}
+        for e in self._events.get(workspace_id, ()):
+            if e.execution_id is not None:
+                first_seq[e.execution_id] = min(e.seq, first_seq.get(e.execution_id, e.seq))
+        ordered = sorted(first_seq, key=lambda execution_id: first_seq[execution_id], reverse=True)
+        return tuple(ordered[offset:offset + limit]), len(ordered)
+
+    async def save_export(self, record: ExportRecord, *, session: AsyncConnection | None = None) -> None:
+        self._exports.setdefault(record.workspace_id, []).append(record)  # frozen model, safe to keep
+
+    async def list_exports(self, workspace_id: UUID, *, limit: int | None = None) -> tuple[ExportRecord, ...]:
+        newest_first = list(reversed(self._exports.get(workspace_id, ())))
+        return tuple(newest_first if limit is None else newest_first[:limit])
+
 
 # ============================================================================
 # PostgreSQL (Phase 3)
@@ -240,6 +291,7 @@ class InMemoryAuditRepository:
 _EVENT_COLUMNS = tuple(AuditEvent.model_fields)
 _VERIFICATION_COLUMNS = tuple(ChainVerificationResult.model_fields)
 _PROVENANCE_COLUMNS = tuple(ProvenanceRecord.model_fields)
+_EXPORT_COLUMNS = tuple(ExportRecord.model_fields)
 # These provenance columns are jsonb (001_audit_tables.sql).
 _PROVENANCE_JSON = ("objective", "decision", "approvals", "execution", "result", "event_ids", "event_hashes")
 
@@ -251,6 +303,18 @@ def _insert_sql(table: str, columns: tuple[str, ...]) -> str:
 
 _INSERT_EVENT = _insert_sql("audit_events", _EVENT_COLUMNS)
 _INSERT_VERIFICATION = _insert_sql("hash_chain_verifications", _VERIFICATION_COLUMNS)
+_INSERT_EXPORT = _insert_sql("audit_exports", _EXPORT_COLUMNS)
+
+# EventFilter field -> SQL condition. Fixed text only; the values always go in as parameters.
+_FILTER_SQL: dict[str, str] = {
+    "date_from": "event_timestamp >= %(date_from)s",
+    "date_to": "event_timestamp <= %(date_to)s",
+    "action": "action = %(action)s",
+    "actor_id": "actor_id = %(actor_id)s",
+    "actor_role": "actor_role = %(actor_role)s",
+    "outcome": "outcome = %(outcome)s",
+    "execution_id": "execution_id = %(execution_id)s",
+}
 # A second seal of the same request inserts nothing and returns no row (§8.4 step 7).
 _INSERT_PROVENANCE = (_insert_sql("provenance_records", _PROVENANCE_COLUMNS)
                       + " ON CONFLICT (workspace_id, execution_id) DO NOTHING RETURNING provenance_id")
@@ -406,6 +470,60 @@ class PostgresAuditRepository:
         async with self._db.connection() as conn:
             rows = await _fetch_all(conn, query, (workspace_id, execution_id))
         return ProvenanceRecord(**rows[0]) if rows else None
+
+    async def query_events(self, workspace_id: UUID, filters: EventFilter, *, limit: int | None,
+                           offset: int = 0, to_seq: int | None = None,
+                           newest_first: bool = True) -> tuple[tuple[AuditEvent, ...], int]:
+        params: dict[str, Any] = {"workspace_id": workspace_id, "to_seq": to_seq, "limit": limit, "offset": offset}
+        conditions = ["workspace_id = %(workspace_id)s"]
+        for name, value in filters:
+            if value is not None:
+                conditions.append(_FILTER_SQL[name])
+                params[name] = value.value if isinstance(value, Enum) else value
+        if to_seq is not None:
+            conditions.append("seq <= %(to_seq)s")
+        where = " AND ".join(conditions)
+        query = (f"SELECT {', '.join(_EVENT_COLUMNS)} FROM audit_events WHERE {where} "
+                 f"ORDER BY seq {'DESC' if newest_first else 'ASC'}")
+        if limit is not None:
+            query += " LIMIT %(limit)s"
+        query += " OFFSET %(offset)s"
+        async with self._db.connection() as conn:
+            total = (await _fetch_all(conn, f"SELECT count(*) AS total FROM audit_events WHERE {where}", params))
+            rows = await _fetch_all(conn, query, params)
+        return tuple(AuditEvent(**row) for row in rows), total[0]["total"]
+
+    async def get_event(self, workspace_id: UUID, event_id: UUID) -> Optional[AuditEvent]:
+        query = (f"SELECT {', '.join(_EVENT_COLUMNS)} FROM audit_events "
+                 "WHERE workspace_id = %s AND event_id = %s")
+        async with self._db.connection() as conn:
+            rows = await _fetch_all(conn, query, (workspace_id, event_id))
+        return AuditEvent(**rows[0]) if rows else None
+
+    async def list_execution_ids(self, workspace_id: UUID, *, limit: int,
+                                 offset: int = 0) -> tuple[tuple[str, ...], int]:
+        where = "workspace_id = %(workspace_id)s AND execution_id IS NOT NULL"
+        params = {"workspace_id": workspace_id, "limit": limit, "offset": offset}
+        async with self._db.connection() as conn:
+            total = await _fetch_all(conn, f"SELECT count(DISTINCT execution_id) AS total FROM audit_events "
+                                           f"WHERE {where}", params)
+            rows = await _fetch_all(conn, f"SELECT execution_id FROM audit_events WHERE {where} "
+                                          "GROUP BY execution_id ORDER BY min(seq) DESC "
+                                          "LIMIT %(limit)s OFFSET %(offset)s", params)
+        return tuple(row["execution_id"] for row in rows), total[0]["total"]
+
+    async def save_export(self, record: ExportRecord, *, session: AsyncConnection | None = None) -> None:
+        async with self._use(session) as conn:
+            await conn.execute(_INSERT_EXPORT, _row_values(record))
+
+    async def list_exports(self, workspace_id: UUID, *, limit: int | None = None) -> tuple[ExportRecord, ...]:
+        query = (f"SELECT {', '.join(_EXPORT_COLUMNS)} FROM audit_exports "
+                 "WHERE workspace_id = %(workspace_id)s ORDER BY exported_at DESC, export_id")
+        if limit is not None:
+            query += " LIMIT %(limit)s"
+        async with self._db.connection() as conn:
+            rows = await _fetch_all(conn, query, {"workspace_id": workspace_id, "limit": limit})
+        return tuple(ExportRecord(**row) for row in rows)
 
 
 __all__ = ["ChainHead", "EventBuilder", "AuditRepository", "InMemoryAuditRepository", "PostgresAuditRepository"]

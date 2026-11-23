@@ -1,8 +1,19 @@
 # CASE — Audit & Transparency Layer
 **Module plan for implementation (owner: Ain)**
-Version 1.3 · 22 Oct 2026
+Version 1.4 · 15 Nov 2026
 
 > **For Claude in VS Code:** read this whole file, `docs/standardization/STANDARDIZATION_MODULE_SPEC.md` and `backend/server.py` before writing code. Follow §3. Work one phase at a time (§11) and stop for review after each. Do not change anything listed in §12.2 (open team decisions) without asking. Appendix A describes how other modules are expected to behave; Audit only records it.
+
+### Changes from v1.3 (team decisions, 15 Nov)
+- **One FastAPI app, one PostgreSQL database (§12.1 #12).** Resolves §12.2 #1. The Node `template-module` is moved into `backend/src/workflow` and `backend/src/ai_intent`; see `docs/workflow/UNIFICATION_PLAN.md`.
+- **Templates are approved before the AI suggests them (§12.1 #9, replaces the v1.2 rule).** Operators and admins can approve, **including their own template**; `TEMPLATE_APPROVED` records `self_approved`. Gate 1 and Gate 2 remain the security controls.
+- **A template drafted during a request runs once under Gate 1** and stays PENDING until approved (Appendix A).
+- **Gate 1 rejection closes the request** as `REJECTED_GATE1` (§12.1 #13). Resolves §12.2 #3.
+- **Cancel is its own outcome (§12.1 #14).** New event `EXECUTION_CANCELLED` and final status `CANCELLED`; `FAILED` stays for system errors.
+- **Approved templates are never edited in place (§12.1 #15).** A change creates a new version (`TEMPLATE_CREATED` with `based_on_version`); draft edits are logged as `TEMPLATE_UPDATED`.
+- **New events (§7):** `TEMPLATE_APPROVED`, `TEMPLATE_REJECTED`, `TEMPLATE_UPDATED`, `TEMPLATE_ACTIVATED`, `EXECUTION_CANCELLED`.
+- **`ProvenanceSealer` added to `port.py` (§8, §8.1).** The Workflow Engine seals requests through the port, not by importing `AuditService`.
+- **Owner named.** AI Intent Classification and the Workflow Engine are both owned by Samantha.
 
 ### Changes from v1.2 (Phase 1)
 - **`source` is a fixed list (§5.1).** GMAIL, TELEGRAM, WEB_FORM, WEB_APP, SYSTEM, plus reserved REST_API, JSON_FILE, EMAIL_SERVICE. Anything else is rejected; callers record an unknown channel as `SYSTEM` with its name in `details.channel`.
@@ -61,8 +72,8 @@ Supporting references (verified): EU AI Act Article 12 (record-keeping), NIST SP
 | Not this module | Owner |
 |---|---|
 | Enforcing approvals, keeping Gate 1/Gate 2 in every run, locking approved templates, checking approved vs executed hash before running | Samantha (Workflow Engine) |
-| Template storage, saving AI-drafted templates, `is_active` flag, blocking deactivated templates | Samantha (Workflow Engine / template store) |
-| AI template matching, NO_MATCH routing, drafting new templates from a prompt | AI Classification |
+| Template storage, saving AI-drafted templates, `is_active` flag, blocking deactivated templates, template approval and versioning | Samantha (Workflow Engine / template store) |
+| AI template matching, NO_MATCH routing, drafting new templates from a prompt | Samantha (AI Intent Classification) |
 | Attachment content extraction (after Gate 1) | Samantha (Workflow Engine) |
 | Login, issuing tokens, RBAC table, Integrations page and token vault, ingress whitelist and DKIM/SPF checks | Amirul |
 | Deciding what is suspicious (alerting, anomaly detection) | Future work |
@@ -75,8 +86,8 @@ Audit must not import the internals of the AI classifier, the Workflow Engine or
 |---|---|
 | Ingress (whitelist, DKIM/SPF) | Amirul |
 | Standardization of incoming messages | Ain (Standardization) |
-| AI template matching, NO_MATCH, drafting templates | AI Classification |
-| Template storage, saving, deactivation enforcement | Workflow Engine / template store |
+| AI template matching, NO_MATCH, drafting templates | Samantha (AI Intent Classification) |
+| Template storage, saving, approval, versioning, deactivation enforcement | Samantha (Workflow Engine / template store) |
 | Gate 1 / Gate 2 enforcement, approved-template locking | Workflow Engine |
 | Approved-vs-executed hash enforcement (block execution) | Workflow Engine |
 | Approved-vs-executed hash and gate order **recording and verification** | Audit |
@@ -182,7 +193,7 @@ Written **once**, when the request is closed (`EXECUTION_CLOSED`, §7).
 | `decision` | `classification_outcome` (SELECTED / NO_MATCH), `ai_suggested_template_id` (null on NO_MATCH), `template_choice` (AI_SUGGESTED / OPERATOR_SWITCHED / OPERATOR_REQUESTED_NEW), `template_id`, `template_version`, `source_template_hash`, `template_created_in_request` (bool), `ai_confidence` (string; recorded, **not** treated as calibrated), `working_copy_revision`, `final_working_copy_hash` |
 | `approvals` | list of `{gate, decision, by, role, at, approved_hash, comment_hash}`; Gate 1 `approved_hash` = approved template/plan hash, Gate 2 = document hash |
 | `execution` | `approved_template_hash`, `executed_template_hash`, `hashes_match` (null if execution never started) |
-| `result` | `final_status` (DELIVERED / REJECTED_GATE1 / REJECTED_GATE2 / UNSUPPORTED / FAILED), `recipient_hash`, `document_hash` |
+| `result` | `final_status` (DELIVERED / REJECTED_GATE1 / REJECTED_GATE2 / UNSUPPORTED / FAILED / CANCELLED), `recipient_hash`, `document_hash` |
 | `event_ids`, `event_hashes` | ordered by `seq`; all events of this `execution_id` up to and including `EXECUTION_CLOSED` |
 | `lineage_hash` | `SHA-256(canonical_json(event_hashes))` |
 | `record_hash` | `SHA-256(canonical_json(all fields above except record_hash))` |
@@ -242,11 +253,13 @@ One `AuditAction` enum in `catalogue.py`, each mapped to its `event_type`. Unkno
 | | `DATA_STANDARDIZED` *(reserved for future resources; not emitted in the MVP)* | SYSTEM_ACTION | Standardization |
 | AI | `AI_TEMPLATE_SELECTED`, `AI_TEMPLATE_NO_MATCH`, `AI_TEMPLATE_DRAFTED`, `AI_CONTENT_GENERATED` | AI_DECISION | AI Classification / Workflow Engine |
 | Template | `TEMPLATE_MANUALLY_SELECTED`, `TEMPLATE_REQUESTED`, `TEMPLATE_CREATED`, `TEMPLATE_DEACTIVATED`, `EXECUTION_TEMPLATE_MODIFIED`, `REQUEST_UNSUPPORTED` | USER_ACTION | Workflow Engine / template store |
+| | `TEMPLATE_APPROVED`, `TEMPLATE_REJECTED`, `TEMPLATE_UPDATED`, `TEMPLATE_ACTIVATED` *(v1.4)* | USER_ACTION | Workflow Engine / template store |
 | | `TEMPLATE_INSTANTIATED` | SYSTEM_ACTION | Workflow Engine |
 | | `EXECUTION_TEMPLATE_MODIFY_REJECTED` | SECURITY_EVENT | Workflow Engine |
 | Gates | `GATE1_SUBMITTED` | STATE_CHANGE | Workflow Engine |
 | | `GATE1_APPROVED`, `GATE1_REJECTED`, `GATE2_APPROVED`, `GATE2_REJECTED` | APPROVAL_GATE | Workflow Engine |
 | Execution | `EXECUTION_STARTED`, `EXECUTION_FAILED`, `EXECUTION_CLOSED` | STATE_CHANGE | Workflow Engine |
+| | `EXECUTION_CANCELLED` *(v1.4; a person stopped the request)* | USER_ACTION | Workflow Engine |
 | | `ATTACHMENT_EXTRACTED` | SYSTEM_ACTION | Workflow Engine |
 | Output | `DOCUMENT_GENERATED`, `JOB_DELIVERED` | SYSTEM_ACTION | Workflow Engine |
 | Integrations | `INTEGRATION_CONNECTED`, `INTEGRATION_DISCONNECTED` | USER_ACTION | Integrations (Amirul) |
@@ -265,20 +278,27 @@ One `AuditAction` enum in `catalogue.py`, each mapped to its `event_type`. Unkno
 | `TEMPLATE_MANUALLY_SELECTED` | `ai_template_id` (null after NO_MATCH), `template_id`, `template_version`, `source_template_hash` |
 | `TEMPLATE_REQUESTED` | `prompt_hash` |
 | `AI_TEMPLATE_DRAFTED` | `template_id`, `template_version`, `template_hash`, `prompt_hash` |
-| `TEMPLATE_CREATED` | `template_id`, `template_version`, `template_hash`, `origin` (`MANUAL` \| `AI_DRAFTED`) |
+| `TEMPLATE_CREATED` | `template_id`, `template_version`, `template_hash`, `origin` (`MANUAL` \| `AI_DRAFTED`); optional `based_on_version` (new version of an approved template) |
 | `TEMPLATE_DEACTIVATED` | `template_id`, `template_version`, `reason_code` |
+| `TEMPLATE_APPROVED` | `template_id`, `template_version`, `template_hash`, `self_approved` (bool: approver is the creator) |
+| `TEMPLATE_REJECTED` | `template_id`, `template_version`, `reason_code` (a code, never the comment text), `comment_hash` (optional) |
+| `TEMPLATE_UPDATED` | `template_id`, `template_version`, `previous_hash`, `template_hash`, `changed_fields` (names only); drafts only |
+| `TEMPLATE_ACTIVATED` | `template_id`, `template_version` (re-activation; approval already activates) |
+| `EXECUTION_CANCELLED` | `reason_code` |
 | `TEMPLATE_INSTANTIATED` | `template_id`, `template_version`, `working_copy_id`, `revision`, `content_hash` |
 | `EXECUTION_TEMPLATE_MODIFIED` | `working_copy_id`, `revision`, `previous_hash`, `content_hash`, `changed_fields` (names only) |
 | `GATE1_APPROVED` / `GATE1_REJECTED` | `revision`, `approved_template_hash` (approved only), `comment_hash` (optional) |
 | `GATE2_APPROVED` / `GATE2_REJECTED` | `document_hash`, `comment_hash` (optional) |
 | `EXECUTION_STARTED` | `approved_template_hash`, `executed_template_hash` |
 | `ATTACHMENT_EXTRACTED` | `attachment_count`, `file_hashes` (list), `extracted_chars` (count) |
-| `EXECUTION_CLOSED` | `final_status` |
+| `EXECUTION_CLOSED` | `final_status` (`DELIVERED` \| `REJECTED_GATE1` \| `REJECTED_GATE2` \| `UNSUPPORTED` \| `FAILED` \| `CANCELLED`) |
 | `INTEGRATION_CONNECTED` / `INTEGRATION_DISCONNECTED` | `integration_id`, `channel` (`GMAIL` \| `TELEGRAM`), `scope_label` |
 | `AUDIT_INTEGRITY_VERIFIED` / `AUDIT_INTEGRITY_FAILED` | `verification_id`, `events_checked`, `head_seq`, `head_hash`, `broken_at_seq` (failed only) |
 | `PROVENANCE_RECORDED` | `provenance_id`, `event_count`, `lineage_hash`, `record_hash` |
 
-`TEMPLATE_CREATED` carries the request's `execution_id` when the template was created during a request (so it appears in that request's lineage), and null when created outside a request (e.g. by the dev team for the demo).
+`TEMPLATE_CREATED` carries the request's `execution_id` when the template was created during a request (so it appears in that request's lineage), and null when created outside a request (e.g. by the dev team for the demo). `TEMPLATE_APPROVED`, `TEMPLATE_REJECTED`, `TEMPLATE_UPDATED` and `TEMPLATE_ACTIVATED` usually happen outside a request (`execution_id` null).
+
+`EXECUTION_CANCELLED` is followed by `EXECUTION_CLOSED` with `final_status = CANCELLED`. `EXECUTION_FAILED` is only for system errors; a person stopping a request is never recorded as `FAILED`.
 
 Other actions: free-form details, still checked for forbidden keys and size.
 
@@ -290,7 +310,7 @@ Other actions: free-form details, still checked for forbidden keys and size.
 
 ```
 src/audit/
-├── port.py            # public contract: AuditLogger protocol, NullAuditLogger, MemoryAuditLogger (imported by every module)
+├── port.py            # public contract: AuditLogger + ProvenanceSealer protocols, NullAuditLogger, MemoryAuditLogger (imported by every module)
 ├── schemas.py         # moved + revised models (event, timeline entry, provenance, verification, export)
 ├── catalogue.py       # AuditAction enum, event_type mapping, required-details models, terminal statuses, gate-order rules
 ├── canonical.py       # HASH_VERSION, HASH_FIELDS, canonical_json(), compute_event_hash(), compute_lineage_hash(), compute_record_hash()
@@ -320,6 +340,17 @@ class AuditLogger(Protocol):
 
 `AuditService.log_event` satisfies this protocol and returns `None`. Internally it calls `append_event(...) -> AuditEvent`, which tests can use directly.
 
+*(v1.4)* The Workflow Engine also takes a `ProvenanceSealer` from `port.py`:
+
+```python
+class ProvenanceSealer(Protocol):
+    async def seal_provenance(self, workspace_id: str, execution_id: str) -> Any: ...
+```
+
+It is separate from `AuditLogger` because only the Workflow Engine seals requests. `AuditService` implements both, so the app passes the same object for both parameters. `MemoryAuditLogger` implements both for tests (`.events`, `.sealed`). A test checks that `AuditService.seal_provenance` keeps the same parameters as the protocol.
+
+**What another module needs to connect:** `port.py`, `catalogue.py` (action names, required details, gate order) and `errors.py` (`AuditValidationError`, `ProvenanceError`), plus `docs/audit/README.md` sections 3–7. Everything else in `src/audit/` is internal.
+
 Mapping from protocol keywords to stored fields:
 
 | Keyword | Stored as |
@@ -342,13 +373,13 @@ Steps:
 
 | Pattern | When | How | If audit write fails |
 |---|---|---|---|
-| **A. Shared transaction** | State change stored in our Postgres: whitelist changes, integration connect/disconnect, template created/deactivated | Caller opens a transaction, applies the change, calls `log_event(..., session=tx)` as the **last** step, then commits | Whole transaction rolls back; the change does not happen |
-| **B. Log before act** | Actions whose state is not in our Postgres transaction: Gate 1/Gate 2 decisions (LangGraph `interrupt()` + `MemorySaver`), `EXECUTION_STARTED` | Approval endpoint calls `log_event` (Audit commits), and resumes the graph **only after** that succeeds | Graph is not resumed; the API returns an error; nothing executes |
+| **A. Shared transaction** | State change stored in our Postgres: whitelist changes, integration connect/disconnect, template created/deactivated/approved/rejected/updated/activated | Caller opens a transaction, applies the change, calls `log_event(..., session=tx)` as the **last** step, then commits | Whole transaction rolls back; the change does not happen |
+| **B. Log before act** | Actions whose state is not in our Postgres transaction: Gate 1/Gate 2 decisions (LangGraph `interrupt()` + checkpointer), `EXECUTION_STARTED`, `EXECUTION_CANCELLED` | Approval endpoint calls `log_event` (Audit commits), and resumes the graph **only after** that succeeds | Graph is not resumed; the API returns an error; nothing executes |
 | **C. Best-effort** | Read-only actions, `ACCESS_FORBIDDEN`, `AUTH_FAILED` | Call `log_event`; on failure write a warning to the app logger (no secrets) | Normal response / 403 / 401 is still returned |
 
 Notes:
 - Pattern A keeps the advisory lock short because the audit insert is the last statement before commit.
-- Pattern A applies to template events only if the template store is in the same Postgres database (§12.2 #1). Otherwise the template store uses pattern B.
+- Pattern A applies to template events because the template store is in the same Postgres database (confirmed in v1.4, §12.1 #12).
 - Pattern B's only failure mode is "approval logged but graph not resumed", which is safe and visible in the timeline (an approval with no `EXECUTION_STARTED`).
 - External side effects (sending email/Telegram) cannot be rolled back. `GATE2_APPROVED` is logged before sending; `JOB_DELIVERED` is logged after the send succeeds, with one retry. If that log still fails, the timeline shows `GATE2_APPROVED` without `JOB_DELIVERED` (stated as a limitation in §15).
 
@@ -368,7 +399,7 @@ Stop at the first break. Return the §5.5 result, always including `head_seq`, `
 
 ### 8.4 `seal_provenance(workspace_id, execution_id)`
 
-Called explicitly by the Workflow Engine right after it logs `EXECUTION_CLOSED`.
+Called explicitly by the Workflow Engine right after it logs `EXECUTION_CLOSED`, through the `ProvenanceSealer` port (§8.1).
 
 1. Load all events of `execution_id`, ordered by `seq`.
 2. Require exactly one `EXECUTION_CLOSED`; its `final_status` becomes `result.final_status`. Otherwise reject (`NOT_CLOSED`).
@@ -495,7 +526,7 @@ The backend check is the real control. Hiding the Export button for non-auditors
 | **3. Postgres** | `src/storage/database.py` (if not built yet), migrations (§6), `AuditRepository`, advisory lock, triggers, role split | Concurrency, protection and pattern-A tests pass |
 | **4. Provenance** | `seal_provenance`, `verify_lineage` incl. gate order | Provenance tests + scenarios A–E and G (in-memory) pass |
 | **5. Read API + export** | `queries.py`, `routes.py` (mock auth until Amirul's is ready), `export.py` | API, RBAC and export tests pass |
-| **6. Plug in** | Replace `NullAuditLogger` in Standardization; give `AuditService` to Ingress, Integrations and the Workflow Engine; with Samantha: gate endpoints use pattern B, engine logs template/attachment/`EXECUTION_CLOSED` events and calls `seal_provenance`; switch to real auth | End-to-end demo shows one request's full lineage, scenario F, and a tamper test failing verification with the head values on screen |
+| **6. Plug in** | Replace `NullAuditLogger` in Standardization; give `AuditService` to Ingress, Integrations and the Workflow Engine; with Samantha (her side is in `docs/workflow/UNIFICATION_PLAN.md`): gate endpoints use pattern B, engine logs template/attachment/`EXECUTION_CLOSED` events and seals through `ProvenanceSealer`; point the dashboard Audit page at `/api/v1/audit`; switch to real auth | End-to-end demo shows one request's full lineage, scenario F, and a tamper test failing verification with the head values on screen |
 
 ### Schedule (deadline late Nov / early Dec 2026)
 
@@ -526,19 +557,26 @@ Phases 1, 2 and 4 need no database (in-memory repository). Phase 5 can start wit
 6. Requests without execution use the same `execution_id` from `JOB_RECEIVED` and are sealed as `UNSUPPORTED`.
 7. Terminal state is signalled by `EXECUTION_CLOSED`, so Audit does not depend on the engine's internal state machine.
 8. AI suggests a template; the OPERATOR can accept, switch, or request a new one by prompt. *(v1.2)*
-9. Operator-requested templates are saved for reuse without ADMIN approval; ADMIN can deactivate. Gate 1 is the control point. ADMIN approval of templates is future work. *(v1.2)*
+9. Every new template (manual or AI-drafted) starts PENDING and inactive; the AI only suggests APPROVED + active templates. Operators and admins can approve, **including their own template**; `TEMPLATE_APPROVED` records `self_approved`. Gate 1 and Gate 2 remain the security controls; template approval marks a template as ready. ADMIN can deactivate. *(changed in v1.4; v1.2 had no approval)*
 10. No data fetch after Gate 1. CASE processes only what is sent to it. *(v1.2)*
 11. Gates cannot be removed by any template; Audit checks gate order in `verify_lineage`. *(v1.2)*
+12. All modules run in **one FastAPI app and one PostgreSQL database**; the template store is in the same database. *(v1.4, resolves §12.2 #1)*
+13. **Gate 1 rejection closes the request** (`EXECUTION_CLOSED`, `REJECTED_GATE1`); the sender sends a new request. Re-editing after rejection is future work. *(v1.4, resolves §12.2 #3)*
+14. **Cancel is its own outcome:** `EXECUTION_CANCELLED` (who + `reason_code`), then `EXECUTION_CLOSED` with `CANCELLED`, allowed before `JOB_DELIVERED`. `FAILED` is only for system errors. *(v1.4)*
+15. **Approved templates are never edited in place.** A change creates version + 1 (`TEMPLATE_CREATED` with `based_on_version`); old runs keep pointing at the old version and hash. Drafts are edited in place and logged as `TEMPLATE_UPDATED`. *(v1.4)*
+16. A template drafted during a request (after NO_MATCH) runs **once** for that request under Gate 1 and stays PENDING; it is only suggested for later requests after it is approved (#9). *(v1.4)*
+17. Gate 1 and Gate 2 are fixed engine steps; templates have no `approval` step type of their own. Any operator or admin can approve a gate, including the person who requested the template; Audit records both actors, so this is visible in provenance. *(v1.4)*
+18. `verify_lineage` does **not** check that the template used was approved, because #16 lets a request-drafted template run unapproved. Gate order (#11) is the verified control. *(v1.4)*
 
 ### 12.2 Still to confirm with the team
 
 | # | Question | With |
 |---|---|---|
-| 1 | All modules run in one FastAPI app and one Postgres database (assumed yes, per `server.py`); template store in the same DB | Team |
-| 2 | Engine emits the §7 events from its nodes (including template, `ATTACHMENT_EXTRACTED`, `EXECUTION_CLOSED`), uses pattern B for gates, and calls `seal_provenance` | Samantha |
-| 3 | Working copies and editing before Gate 1 (Appendix A); whether Gate 1 rejection allows re-edit or closes the request | Samantha |
-| 4 | Template store: saving AI-drafted templates, `is_active` flag, deactivated templates not offered to the AI | Samantha |
-| 5 | AI side emits `AI_TEMPLATE_SELECTED` / `AI_TEMPLATE_NO_MATCH` / `AI_TEMPLATE_DRAFTED` with the required details | AI Classification owner |
+| 1 | ~~All modules run in one FastAPI app and one Postgres database~~ ✅ **Resolved in v1.4** (§12.1 #12) | Team |
+| 2 | Engine emits the §7 events from its nodes (including template, `ATTACHMENT_EXTRACTED`, `EXECUTION_CLOSED`), uses pattern B for gates, and calls `seal_provenance`. *Agreed in `docs/workflow/UNIFICATION_PLAN.md`; confirm when built* | Samantha |
+| 3 | ~~Whether Gate 1 rejection allows re-edit or closes the request~~ ✅ **Resolved in v1.4:** it closes (§12.1 #13). Working-copy editing before Gate 1 is still up to the engine | Samantha |
+| 4 | ~~Template store: saving AI-drafted templates, `is_active` flag~~ ✅ **Resolved in v1.4** (§12.1 #9, #15, #16; unification plan S1) | Samantha |
+| 5 | AI side emits `AI_TEMPLATE_SELECTED` / `AI_TEMPLATE_NO_MATCH` / `AI_TEMPLATE_DRAFTED` with the required details. *Agreed in the unification plan (S3); confirm when built* | Samantha |
 | 6 | Where the central `rbac.py`, `get_current_user` and `require_permission` live (`src/security/` proposed), permission-list approach, and JWT format (`user_id`, `workspace_id`, `role`; Bearer header) | Amirul |
 | 7 | Integrations page emits `INTEGRATION_CONNECTED` / `INTEGRATION_DISCONNECTED`; ingress emits `JOB_RECEIVED`, `INGRESS_REJECTED_*` and `WHITELIST_*` | Amirul |
 | 8 | Secure API Layer: with data fetch removed, its remaining parts (JWT/RBAC, whitelist, token vault) move to auth and ingress, and the module is dropped | Team (and inform supervisor) |
@@ -594,6 +632,8 @@ Phases 1, 2 and 4 need no database (in-memory repository). Phase 5 can start wit
 | `decision_records` + `execution_results` tables | One `provenance_records` row + event details | Full lineage retrievable as one record (O3) |
 | Per-event `hash_chain_verification` rows | One result per verification run | Reports the first break and its reason (O2) |
 | Roles Admin / Developer / Auditor | ADMIN / OPERATOR / AUDITOR | Official slide |
+| Template module as a separate Node.js server with its own database and audit log | One FastAPI app, one PostgreSQL database, one audit trail (v1.4) | One stack to run and explain; every module's actions land in the same verifiable chain |
+| Saved templates reused without review (v1.2) | Templates approved before the AI suggests them; self-approval allowed but recorded (v1.4) | Marks a template as ready without making operators wait for a second person |
 | Time partitioning + 90-day archive | None for the FYP | Deleting old records breaks verification; FYP volume is small |
 | Row-level security | Workspace filter enforced in every repository query | Simpler for the FYP; RLS listed as future work |
 
@@ -603,14 +643,16 @@ Phases 1, 2 and 4 need no database (in-memory repository). Phase 5 can start wit
 - The gate order check proves the **recorded** order; enforcement before execution is the Workflow Engine's job.
 - With pattern B, an approval can be logged without the execution starting (safe, and visible in the timeline).
 - External side effects (sent messages) cannot be rolled back; delivery logging is after the send.
-- Saved templates are not reviewed before reuse; Gate 1 remains the control point. ADMIN approval of templates is future work.
+- A template can be approved by the person who created it, and the person who requested a template can also approve Gate 1. One user can therefore complete a whole request alone (draft → approve template → Gate 1 → Gate 2). CASE **detects** this through the audit trail (`self_approved`, the actor of each gate) rather than **preventing** it.
+- `verify_lineage` does not check that the template used was approved (§12.1 #18); it checks the gate order.
 - CASE cannot complete tasks that need data outside the request unless the user attaches it. Connecting further resources is future work.
 - Matching hashes prove content consistency, not that the AI choice or the human decision was correct.
 - AI confidence is recorded as reported by the model and is not calibrated.
 
 ### Future work
 - External anchoring or signing of the chain head.
-- ADMIN approval of templates before reuse.
+- Separation of duties: a second person must approve a template, and the gate approver must differ from the requester.
+- Re-editing the working copy after a Gate 1 rejection instead of closing the request.
 - Further resources (REST API, JSON file, databases) through new adapters after Gate 1; the AI, gates and audit layer stay unchanged.
 - Row-level security, archiving by moving (not deleting) partitions.
 
@@ -630,40 +672,54 @@ Phases 1, 2 and 4 need no database (in-memory repository). Phase 5 can start wit
 
 ---
 
-## Appendix A — Expected behaviour of other modules (to confirm with Samantha)
+## Appendix A — Expected behaviour of other modules (agreed with Samantha; her build plan is `docs/workflow/UNIFICATION_PLAN.md`)
 
 Audit is built to record this lifecycle. Enforcement belongs to the Workflow Engine, template store and AI owners, not to Audit.
 
+**Template lifecycle** *(v1.4)*
+
+```
+create (manual or AI draft) ─▶ PENDING, inactive      TEMPLATE_CREATED (+ AI_TEMPLATE_DRAFTED if AI)
+   │  edit draft ─▶ TEMPLATE_UPDATED (same version)
+   ├─ approve ─▶ APPROVED, active                       TEMPLATE_APPROVED (self_approved true/false)
+   └─ reject  ─▶ REJECTED (can be edited and resubmitted) TEMPLATE_REJECTED
+APPROVED: never edited in place → new version (version + 1, PENDING)   TEMPLATE_CREATED (based_on_version)
+deactivate / re-activate                                TEMPLATE_DEACTIVATED / TEMPLATE_ACTIVATED
+```
+
 **Request lifecycle**
-1. Templates exist in the Workspace Library (built by the dev team for the demo, or saved by an OPERATOR, step 4).
+1. Templates exist in the Workspace Library (built by the dev team for the demo, or saved by an OPERATOR, step 4). Only APPROVED and active templates are offered to the AI.
 2. A request arrives through Gmail, Telegram or the web form, is whitelisted and standardized.
 3. AI classification suggests a template (`AI_TEMPLATE_SELECTED`) or returns NO_MATCH.
 4. The OPERATOR either:
    - accepts the suggestion,
    - switches to another library template (`TEMPLATE_MANUALLY_SELECTED`), or
-   - requests a new template through a prompt (`TEMPLATE_REQUESTED`); the AI drafts it (`AI_TEMPLATE_DRAFTED`); the OPERATOR reviews and saves it (`TEMPLATE_CREATED`, `origin = AI_DRAFTED`). It is immediately reusable, no ADMIN approval.
+   - requests a new template through a prompt (`TEMPLATE_REQUESTED`); the AI drafts it (`AI_TEMPLATE_DRAFTED`); the OPERATOR reviews and saves it (`TEMPLATE_CREATED`, `origin = AI_DRAFTED`). It runs **for this request only** under Gate 1 and stays PENDING; the AI suggests it for later requests only after it is approved (`TEMPLATE_APPROVED`).
    On NO_MATCH the OPERATOR can also reject the request (`REQUEST_UNSUPPORTED`).
 5. The engine creates an execution-specific working copy (`TEMPLATE_INSTANTIATED`). Editing it never changes the library template.
 6. The working copy is submitted for Gate 1. The exact approved revision is the one executed.
 7. After Gate 1: attachments are extracted (`ATTACHMENT_EXTRACTED`), the AI generates the output, the document is built.
 8. Gate 2 review, delivery, then the request is closed and provenance is sealed.
 
+At any point before delivery an OPERATOR or ADMIN can cancel the request (`EXECUTION_CANCELLED`, then `EXECUTION_CLOSED` with `CANCELLED`).
+
 ADMIN can deactivate a template at any time (`TEMPLATE_DEACTIVATED`). Deactivated templates are not offered to the AI or the OPERATOR; past requests that used them keep their provenance.
 
-Every template, including AI-drafted ones, runs between Gate 1 and Gate 2. A template cannot define, skip or remove a gate.
+Every template, including AI-drafted ones, runs between Gate 1 and Gate 2. A template cannot define, skip or remove a gate; Gate 1 and Gate 2 are fixed engine steps, and templates have no `approval` step type of their own.
 
-**Working-copy states (assumed)**
+**Working-copy states**
 
 | State | Editing |
 |---|---|
 | Draft | Editable |
 | Pending Gate 1 | Read-only |
-| Gate 1 rejected | Editable again, then resubmitted (to confirm; current `server.py` ends the request) |
+| Gate 1 rejected | Closed: request ends as `REJECTED_GATE1` (v1.4) |
 | Gate 1 approved | Locked |
 | Executing | Locked |
+| Cancelled | Closed: request ends as `CANCELLED` (v1.4) |
 
 The backend enforces these states; disabling frontend buttons alone is not enough.
 
 **Integrity check owned by the engine:** before executing, the engine checks `approved_template_hash == executed_template_hash` and stops if they differ. Audit records both hashes (`GATE1_APPROVED`, `EXECUTION_STARTED`) and re-checks them in `verify_lineage`.
 
-**Deferred beyond the FYP:** ADMIN approval of templates, collaborative editing, revision rollback UI, automatic re-approval after post-approval changes, confidence calibration.
+**Deferred beyond the FYP:** mandatory second-person template approval, re-editing after Gate 1 rejection, collaborative editing, revision rollback UI, automatic re-approval after post-approval changes, confidence calibration.

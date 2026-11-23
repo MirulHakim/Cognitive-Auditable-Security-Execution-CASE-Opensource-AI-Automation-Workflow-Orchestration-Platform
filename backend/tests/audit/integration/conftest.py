@@ -14,7 +14,9 @@ Three connections, like a real deployment:
 
 If Postgres cannot be reached, every test here is skipped with the reason.
 Settings (defaults match docker-compose.yml):
-  CASE_TEST_ADMIN_URL       postgresql://postgres:postgres@localhost:5432/postgres
+  CASE_TEST_ADMIN_URL       postgresql://postgres:postgres@127.0.0.1:5432/postgres
+(127.0.0.1, not "localhost": on Windows "localhost" tries IPv6 first, and the
+async connection pool then waits forever, because Docker publishes IPv4 only.)
   CASE_TEST_OWNER_PASSWORD  case_owner_dev
   CASE_TEST_APP_PASSWORD    case_app_dev
 """
@@ -33,7 +35,7 @@ from src.audit.service import AuditService
 from src.storage.database import Database
 from src.storage.migrate import apply_migrations
 
-ADMIN_URL = os.environ.get("CASE_TEST_ADMIN_URL", "postgresql://postgres:postgres@localhost:5432/postgres")
+ADMIN_URL = os.environ.get("CASE_TEST_ADMIN_URL", "postgresql://postgres:postgres@127.0.0.1:5432/postgres")
 OWNER_PASSWORD = os.environ.get("CASE_TEST_OWNER_PASSWORD", "case_owner_dev")
 APP_PASSWORD = os.environ.get("CASE_TEST_APP_PASSWORD", "case_app_dev")
 TEST_DB = "case_test"

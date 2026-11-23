@@ -46,6 +46,11 @@ class AuditAction(str, Enum):
     TEMPLATE_REQUESTED = "TEMPLATE_REQUESTED"
     TEMPLATE_CREATED = "TEMPLATE_CREATED"
     TEMPLATE_DEACTIVATED = "TEMPLATE_DEACTIVATED"
+    # Template review and edits (unification plan D1, D6) - samantha
+    TEMPLATE_APPROVED = "TEMPLATE_APPROVED"
+    TEMPLATE_REJECTED = "TEMPLATE_REJECTED"
+    TEMPLATE_UPDATED = "TEMPLATE_UPDATED"        # draft edited in place (never an approved template)
+    TEMPLATE_ACTIVATED = "TEMPLATE_ACTIVATED"    # re-activation only; approval already activates
     EXECUTION_TEMPLATE_MODIFIED = "EXECUTION_TEMPLATE_MODIFIED"
     REQUEST_UNSUPPORTED = "REQUEST_UNSUPPORTED"
     TEMPLATE_INSTANTIATED = "TEMPLATE_INSTANTIATED"
@@ -59,6 +64,7 @@ class AuditAction(str, Enum):
     # Execution - amirul
     EXECUTION_STARTED = "EXECUTION_STARTED"
     EXECUTION_FAILED = "EXECUTION_FAILED"
+    EXECUTION_CANCELLED = "EXECUTION_CANCELLED"  # a person stopped it (D5); then EXECUTION_CLOSED with CANCELLED
     EXECUTION_CLOSED = "EXECUTION_CLOSED"
     ATTACHMENT_EXTRACTED = "ATTACHMENT_EXTRACTED"
     # Output - samantha
@@ -100,6 +106,10 @@ EVENT_TYPES: Mapping[AuditAction, AuditEventTypeEnum] = {
     A.TEMPLATE_REQUESTED: T.USER_ACTION,
     A.TEMPLATE_CREATED: T.USER_ACTION,
     A.TEMPLATE_DEACTIVATED: T.USER_ACTION,
+    A.TEMPLATE_APPROVED: T.USER_ACTION,
+    A.TEMPLATE_REJECTED: T.USER_ACTION,
+    A.TEMPLATE_UPDATED: T.USER_ACTION,
+    A.TEMPLATE_ACTIVATED: T.USER_ACTION,
     A.EXECUTION_TEMPLATE_MODIFIED: T.USER_ACTION,
     A.REQUEST_UNSUPPORTED: T.USER_ACTION,
     A.TEMPLATE_INSTANTIATED: T.SYSTEM_ACTION,
@@ -111,6 +121,7 @@ EVENT_TYPES: Mapping[AuditAction, AuditEventTypeEnum] = {
     A.GATE2_REJECTED: T.APPROVAL_GATE,
     A.EXECUTION_STARTED: T.STATE_CHANGE,
     A.EXECUTION_FAILED: T.STATE_CHANGE,
+    A.EXECUTION_CANCELLED: T.USER_ACTION,
     A.EXECUTION_CLOSED: T.STATE_CHANGE,
     A.ATTACHMENT_EXTRACTED: T.SYSTEM_ACTION,
     A.DOCUMENT_GENERATED: T.SYSTEM_ACTION,
@@ -258,12 +269,43 @@ class TemplateCreatedDetails(_Details):
     template_version: Version
     template_hash: Hash
     origin: Literal["MANUAL", "AI_DRAFTED"]
+    based_on_version: Optional[Version] = None  # only for a new version of an approved template (D6)
 
 
 class TemplateDeactivatedDetails(_Details):
     template_id: Id
     template_version: Version
     reason_code: Code
+
+
+# self_approved: True when the approver also created the template. Allowed (D1), but always recorded.
+class TemplateApprovedDetails(_Details):
+    template_id: Id
+    template_version: Version
+    template_hash: Hash
+    self_approved: StrictBool
+
+
+# reason_code, not the reviewer's comment text: comments may contain personal data (rule 5).
+class TemplateRejectedDetails(_Details):
+    template_id: Id
+    template_version: Version
+    reason_code: Code
+    comment_hash: Optional[Hash] = None
+
+
+# Draft edits only (D6). Field names only in changed_fields, never the values.
+class TemplateUpdatedDetails(_Details):
+    template_id: Id
+    template_version: Version
+    previous_hash: Hash
+    template_hash: Hash
+    changed_fields: list[FieldName]
+
+
+class TemplateActivatedDetails(_Details):
+    template_id: Id
+    template_version: Version
 
 
 class TemplateInstantiatedDetails(_Details):
@@ -310,6 +352,10 @@ class AttachmentExtractedDetails(_Details):
     extracted_chars: Count
 
 
+class ExecutionCancelledDetails(_Details):
+    reason_code: Code
+
+
 class ExecutionClosedDetails(_Details):
     final_status: FinalStatus
 
@@ -351,6 +397,10 @@ REQUIRED_DETAILS: Mapping[AuditAction, type[BaseModel]] = {
     A.AI_TEMPLATE_DRAFTED: AiTemplateDraftedDetails,
     A.TEMPLATE_CREATED: TemplateCreatedDetails,
     A.TEMPLATE_DEACTIVATED: TemplateDeactivatedDetails,
+    A.TEMPLATE_APPROVED: TemplateApprovedDetails,
+    A.TEMPLATE_REJECTED: TemplateRejectedDetails,
+    A.TEMPLATE_UPDATED: TemplateUpdatedDetails,
+    A.TEMPLATE_ACTIVATED: TemplateActivatedDetails,
     A.TEMPLATE_INSTANTIATED: TemplateInstantiatedDetails,
     A.EXECUTION_TEMPLATE_MODIFIED: ExecutionTemplateModifiedDetails,
     A.GATE1_APPROVED: Gate1ApprovedDetails,
@@ -359,6 +409,7 @@ REQUIRED_DETAILS: Mapping[AuditAction, type[BaseModel]] = {
     A.GATE2_REJECTED: Gate2DecisionDetails,
     A.EXECUTION_STARTED: ExecutionStartedDetails,
     A.ATTACHMENT_EXTRACTED: AttachmentExtractedDetails,
+    A.EXECUTION_CANCELLED: ExecutionCancelledDetails,
     A.EXECUTION_CLOSED: ExecutionClosedDetails,
     A.INTEGRATION_CONNECTED: IntegrationDetails,
     A.INTEGRATION_DISCONNECTED: IntegrationDetails,

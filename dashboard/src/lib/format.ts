@@ -1,4 +1,4 @@
-import type { Member, Role, UiRole } from "../api/types";
+import type { Invitation, Member, Role, UiRole } from "../api/types";
 
 /** The three labels the UI shows: operator is "staff" in this design. */
 export function uiRole(role: Role): UiRole {
@@ -7,6 +7,36 @@ export function uiRole(role: Role): UiRole {
 
 export function roleLabel(role: Role): string {
   return role === "operator" ? "Staff (operator)" : role === "admin" ? "Admin" : "Auditor";
+}
+
+/** "farid.hakim@agency.gov.my" → "Farid Hakim" (matches the gateway). */
+export function displayNameFromEmail(email: string): string {
+  const local = email.split("@")[0] ?? email;
+  const parts = local.split(/[._-]+/).filter(Boolean);
+  if (parts.length === 0) return email;
+  return parts
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+/**
+ * Optimistic directory row for a just-sent invitation, so the admin sees the
+ * person as Pending immediately instead of waiting for the next directory read.
+ */
+export function pendingMemberFromInvitation(invitation: Invitation): Member {
+  return {
+    id: `invitation:${invitation.invitationId}`,
+    displayName: displayNameFromEmail(invitation.email),
+    email: invitation.email,
+    role: invitation.role,
+    revokedAt: null,
+    status: "pending",
+    isPending: true,
+    invitationId: invitation.invitationId,
+    invitedBy: invitation.invitedBy,
+    invitedAt: invitation.createdAt,
+    expiresAt: invitation.expiresAt,
+  };
 }
 
 export function initials(name: string): string {
