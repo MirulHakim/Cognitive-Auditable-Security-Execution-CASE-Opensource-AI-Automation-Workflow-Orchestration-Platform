@@ -379,6 +379,11 @@ export const RunDetail: React.FC<RunDetailProps> = ({
             const isCurrent = instance.status === "PAUSED" && instance.currentStep === step.id;
             const file = run?.result.file;
             const hasDocument = typeof file === "string" && file.length > 0;
+            // What the reader extracted from an intake upload, so the operator can
+            // see the evidence the run continued on.
+            const readText = typeof run?.result.text === "string" ? run.result.text : "";
+            const readFileName =
+              typeof run?.result.fileName === "string" ? run.result.fileName : "the uploaded file";
             const Icon = STEP_ICON[step.type];
 
             return (
@@ -425,6 +430,16 @@ export const RunDetail: React.FC<RunDetailProps> = ({
                     )}
                   </div>
                   <p className="mt-1 text-xs text-muted">{step.description}</p>
+                  {readText && (
+                    <div className="mt-2 rounded-lg border border-subtle bg-surface-sunken/40 p-2.5">
+                      <p className="text-[10px] uppercase tracking-wider text-faint">
+                        Read from {readFileName}
+                      </p>
+                      <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-relaxed text-secondary">
+                        {readText}
+                      </pre>
+                    </div>
+                  )}
                 </div>
               </li>
             );

@@ -1,6 +1,6 @@
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { ChatOllama } from "@langchain/ollama";
-import Jimp from "jimp";
+import { Jimp } from "jimp";
 import { createWorker, PSM } from "tesseract.js";
 import { ApiError, unprocessable } from "../domain/errors.js";
 import type { FileReader, ReadFileInput, ReadFileResult } from "../execution/intake.js";
@@ -46,13 +46,13 @@ function isAccepted(type: string, accepted: string[]): boolean {
 async function prepareImage(buffer: Buffer): Promise<Buffer> {
   try {
     const image = await Jimp.read(buffer);
-    image.grayscale();
+    image.greyscale();
     const longest = Math.max(image.bitmap.width, image.bitmap.height);
     if (longest > 0 && longest < 1400) {
       image.scale(Math.min(3, Math.ceil(1400 / longest)));
     }
     image.normalize().contrast(0.15);
-    return await image.getBufferAsync(Jimp.MIME_PNG);
+    return await image.getBuffer("image/png");
   } catch {
     return buffer;
   }
@@ -121,7 +121,7 @@ async function pdfImageToPng(
   }
 
   const bitmap = new Jimp({ data: rgba, width, height });
-  return bitmap.getBufferAsync(Jimp.MIME_PNG);
+  return await bitmap.getBuffer("image/png");
 }
 
 /** Embedded page images of a PDF page, as PNG buffers (first few only). */
